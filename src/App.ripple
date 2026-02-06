@@ -1,0 +1,432 @@
+import { track, effect, flushSync } from 'ripple';
+import { StatusBar } from './components/layout/StatusBar.ripple';
+import { Sidebar } from './components/layout/Sidebar.ripple';
+import { Panel } from './components/layout/Panel.ripple';
+import { EditorArea } from './components/layout/EditorArea.ripple';
+import { ChatPanel } from './components/chat/ChatPanel.ripple';
+import { CommandPalette, type PaletteMode } from './components/palette/CommandPalette.ripple';
+import { AboutDialog } from './components/settings/AboutDialog.ripple';
+import { ResizeHandle } from './components/layout/ResizeHandle.ripple';
+import {
+  openSettings,
+  openKeybindingsSettings,
+  saveFile,
+  closeFile,
+  getActiveFile,
+  activeFileId,
+  openFiles,
+  nextTab,
+  previousTab,
+  newUntitledFile,
+  openFileDialog,
+  openFolderDialog,
+  saveFileAs,
+} from './lib/workspace';
+import {
+  initKeybindingManager,
+  loadKeybindingSettings,
+  emitAction,
+  type KeybindingManager,
+} from './lib/keybindings';
+import { initZoom, zoomIn, zoomOut, resetZoom } from './lib/zoom';
+import { windowApi, events } from './lib/tauri';
+import { initEditorSettings, toggleWordWrap } from './lib/editor-settings';
+import { initAutoSave } from './lib/auto-save';
+import { initAgentSettings } from './lib/agent-settings';
+import {
+  initPanelSizes,
+  getPanelSizes,
+  setSidebarWidth,
+  setChatWidth,
+  setPanelHeight,
+  MIN_SIDEBAR_WIDTH,
+  MAX_SIDEBAR_WIDTH,
+  MIN_CHAT_WIDTH,
+  MAX_CHAT_WIDTH,
+  MIN_PANEL_HEIGHT,
+  MAX_PANEL_HEIGHT,
+} from './lib/panel-sizes';
+
+export component App() {
+  let isPaletteOpen = track(false);
+  let paletteMode = track<PaletteMode>('files');
+  let isChatVisible = track(true);
+  let isSidebarVisible = track(true);
+  let isPanelVisible = track(true);
+  let keybindingManager = track<KeybindingManager | null>(null);
+  let isAboutOpen = track(false);
+
+  // Panel sizes (tracked for reactivity)
+  let sidebarWidth = track(240);
+  let chatWidth = track(320);
+  let panelHeight = track(200);
+
+  // Drag start values (for computing delta from initial position)
+  let dragStartSidebarWidth = 0;
+  let dragStartChatWidth = 0;
+  let dragStartPanelHeight = 0;
+
+  // Shared action handler - used by both keyboard shortcuts and native menu events
+  const handleAction = (actionId: string) => {
+    switch (actionId) {
+      // View actions
+      case 'view.quickOpen':
+        @paletteMode = 'files';
+        @isPaletteOpen = true;
+        break;
+
+      case 'view.commandPalette':
+        @paletteMode = 'commands';
+        @isPaletteOpen = true;
+        break;
+
+      case 'view.toggleSidebar':
+        @isSidebarVisible = !@isSidebarVisible;
+        break;
+
+      case 'view.toggleChat':
+        @isChatVisible = !@isChatVisible;
+        break;
+
+      case 'view.togglePanel':
+        @isPanelVisible = !@isPanelVisible;
+        break;
+
+      // Zoom actions
+      case 'view.zoomIn':
+        zoomIn();
+        break;
+
+      case 'view.zoomOut':
+        zoomOut();
+        break;
+
+      case 'view.resetZoom':
+        resetZoom();
+        break;
+
+      // Terminal actions
+      case 'terminal.toggle':
+        @isPanelVisible = !@isPanelVisible;
+        break;
+
+      case 'terminal.new':
+        @isPanelVisible = true;
+        emitAction('terminal.new');
+        break;
+
+      case 'terminal.clear':
+        emitAction('terminal.clear');
+        break;
+
+      // Help/Settings actions
+      case 'help.openSettings':
+        openSettings();
+        break;
+
+      case 'help.openKeybindings':
+        openKeybindingsSettings();
+        break;
+
+      case 'help.showAbout':
+        @isAboutOpen = true;
+        break;
+
+      // File dialog actions
+      case 'file.newFile':
+        newUntitledFile();
+        break;
+
+      case 'file.openFile':
+        openFileDialog();
+        break;
+
+      case 'file.openFolder':
+        openFolderDialog();
+        break;
+
+      case 'file.saveAs':
+        if (activeFileId) {
+          saveFileAs(activeFileId);
+        }
+        break;
+
+      // File actions
+      case 'file.save':
+        if (activeFileId) {
+          saveFile(activeFileId);
+        }
+        break;
+
+      case 'file.saveAll':
+        openFiles.forEach((file) => {
+          if (file.isDirty && !file.specialTab) {
+            saveFile(file.id);
+          }
+        });
+        break;
+
+      case 'file.close':
+        if (activeFileId) {
+          closeFile(activeFileId);
+        }
+        break;
+
+      case 'file.closeAll':
+        [...openFiles].forEach((file) => closeFile(file.id));
+        break;
+
+      // Tab navigation
+      case 'editor.nextTab':
+        nextTab();
+        break;
+
+      case 'editor.previousTab':
+        previousTab();
+        break;
+
+      // Find in files - ensure sidebar is visible and emit to Sidebar
+      case 'edit.findInFiles':
+        @isSidebarVisible = true;
+        emitAction('edit.findInFiles');
+        break;
+
+      // Editor actions - emit events for child components to handle
+      case 'editor.goToLine':
+      case 'edit.find':
+      case 'edit.findReplace':
+      case 'chat.focus':
+      case 'chat.newConversation':
+        emitAction(actionId);
+        break;
+
+      // Word wrap toggle
+      case 'editor.toggleWordWrap':
+        toggleWordWrap();
+        break;
+
+      // Fullscreen toggle
+      case 'view.toggleFullscreen':
+        windowApi.toggleFullscreen();
+        break;
+
+      // Focus editor (Escape) - move focus back to the editor
+      case 'editor.focusEditor':
+        emitAction(actionId);
+        break;
+
+      default:
+        break;
+    }
+  };
+
+  // Initialize systems and keybinding manager
+  effect(() => {
+    // Initialize zoom system
+    initZoom();
+    // Initialize editor settings
+    initEditorSettings();
+    // Initialize auto-save system
+    initAutoSave();
+    // Initialize agent settings
+    initAgentSettings();
+    // Initialize panel sizes from localStorage
+    initPanelSizes();
+    const savedSizes = getPanelSizes();
+    @sidebarWidth = savedSizes.sidebarWidth;
+    @chatWidth = savedSizes.chatWidth;
+    @panelHeight = savedSizes.panelHeight;
+
+    // Initialize keybinding manager synchronously with defaults
+    // and set up keydown listener immediately so shortcuts work on first render
+    const manager = initKeybindingManager();
+    @keybindingManager = manager;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Allow ESC to close the command palette without being intercepted
+      if (e.key === 'Escape' && @isPaletteOpen) {
+        return;
+      }
+
+      const match = manager.matchEvent(e);
+      if (!match) return;
+
+      e.preventDefault();
+      handleAction(match.actionId);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    // E2E test hook: listen for custom events to trigger actions
+    // This is needed because Chromium intercepts Ctrl+P/B/Shift+P at browser level
+    const testActionHandler = ((e: CustomEvent) => {
+      handleAction(e.detail);
+    }) as EventListener;
+    window.addEventListener('__test-action', testActionHandler);
+
+    // Load saved keybinding settings asynchronously and update if needed
+    loadKeybindingSettings().then((settings) => {
+      if (
+        settings.preset !== 'vscode' ||
+          settings.customBindings && Object.keys(settings.customBindings).length > 0
+      ) {
+        const updatedManager = initKeybindingManager(settings);
+        @keybindingManager = updatedManager;
+        // Replace keydown handler with updated manager
+        window.removeEventListener('keydown', handleKeyDown);
+        const updatedHandleKeyDown = (e: KeyboardEvent) => {
+          // Allow ESC to close the command palette without being intercepted
+          if (e.key === 'Escape' && @isPaletteOpen) {
+            return;
+          }
+
+          const match = updatedManager.matchEvent(e);
+          if (!match) return;
+          e.preventDefault();
+          handleAction(match.actionId);
+        };
+        window.addEventListener('keydown', updatedHandleKeyDown);
+      }
+    }).catch((error) => {
+      console.error('Failed to load keybinding settings:', error);
+    });
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('__test-action', testActionHandler);
+    };
+  });
+
+  // Listen for native menu events from Tauri
+  effect(() => {
+    let unlisten: (() => void) | null = null;
+
+    events.listen<string>('menu-action', (payload) => {
+      handleAction(payload);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  });
+
+  // Resize handlers
+  const handleSidebarResizeStart = () => {
+    dragStartSidebarWidth = @sidebarWidth;
+  };
+
+  const handleSidebarResize = (delta: number) => {
+    const newWidth = dragStartSidebarWidth + delta;
+    @sidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, newWidth));
+  };
+
+  const handleSidebarResizeEnd = () => {
+    setSidebarWidth(@sidebarWidth);
+  };
+
+  const handleChatResizeStart = () => {
+    dragStartChatWidth = @chatWidth;
+  };
+
+  const handleChatResize = (delta: number) => {
+    // Chat resize is inverted: dragging left increases width
+    const newWidth = dragStartChatWidth - delta;
+    @chatWidth = Math.max(MIN_CHAT_WIDTH, Math.min(MAX_CHAT_WIDTH, newWidth));
+  };
+
+  const handleChatResizeEnd = () => {
+    setChatWidth(@chatWidth);
+  };
+
+  const handlePanelResizeStart = () => {
+    dragStartPanelHeight = @panelHeight;
+  };
+
+  const handlePanelResize = (delta: number) => {
+    // Panel resize is inverted: dragging up increases height
+    const newHeight = dragStartPanelHeight - delta;
+    @panelHeight = Math.max(MIN_PANEL_HEIGHT, Math.min(MAX_PANEL_HEIGHT, newHeight));
+  };
+
+  const handlePanelResizeEnd = () => {
+    setPanelHeight(@panelHeight);
+  };
+
+  <div class="flex flex-col w-screen h-screen overflow-hidden bg-bg-base text-text-primary">
+    <div class="flex flex-1 min-h-0 overflow-hidden">
+      <aside
+        class={{
+          'shrink-0 bg-sidebar-bg border-r border-border-default overflow-hidden': true,
+          hidden: !@isSidebarVisible,
+        }}
+        style={`width: ${@sidebarWidth}px`}
+      >
+        <Sidebar />
+      </aside>
+
+      if (@isSidebarVisible) {
+        <ResizeHandle
+          direction="horizontal"
+          onResize={handleSidebarResize}
+          onResizeEnd={handleSidebarResizeEnd}
+          onResizeStart={handleSidebarResizeStart}
+        />
+      }
+
+      <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+        <main class="flex-1 min-h-0 overflow-hidden bg-editor-bg">
+          <EditorArea />
+        </main>
+
+        if (@isPanelVisible) {
+          <ResizeHandle
+            direction="vertical"
+            onResize={handlePanelResize}
+            onResizeEnd={handlePanelResizeEnd}
+            onResizeStart={handlePanelResizeStart}
+          />
+        }
+
+        <div
+          class={{
+            'shrink-0 border-t border-border-default bg-panel-bg overflow-hidden': true,
+            hidden: !@isPanelVisible,
+          }}
+          style={`height: ${@panelHeight}px`}
+        >
+          <Panel onClose={() => (@isPanelVisible = false)} />
+        </div>
+      </div>
+
+      if (@isChatVisible) {
+        <ResizeHandle
+          direction="horizontal"
+          onResize={handleChatResize}
+          onResizeEnd={handleChatResizeEnd}
+          onResizeStart={handleChatResizeStart}
+        />
+      }
+
+      <aside
+        class={{
+          'shrink-0 border-l border-border-default bg-bg-surface overflow-hidden': true,
+          hidden: !@isChatVisible,
+        }}
+        style={`width: ${@chatWidth}px`}
+      >
+        <ChatPanel />
+      </aside>
+    </div>
+
+    <StatusBar />
+    <CommandPalette
+      isOpen={isPaletteOpen}
+      mode={@paletteMode}
+      onClose={() => (@isPaletteOpen = false)}
+      onAction={handleAction}
+    />
+    <AboutDialog isOpen={isAboutOpen} onClose={() => (@isAboutOpen = false)} />
+  </div>
+}

@@ -1,0 +1,266 @@
+import { track, effect } from 'ripple';
+import { EditorTabs } from '../editor/EditorTabs.ripple';
+import { Breadcrumbs } from '../editor/Breadcrumbs.ripple';
+import { CodeEditor } from '../editor/CodeEditor.ripple';
+import { GoToLineDialog } from '../editor/GoToLineDialog.ripple';
+import { SettingsPage } from '../settings/SettingsPage.ripple';
+import {
+  activeFileId,
+  updateFileContent,
+  subscribeToActiveFile,
+  subscribeToOpenFiles,
+  getActiveFile,
+  subscribeToCursorPosition,
+  subscribeToGoToLine,
+  isSpecialTab,
+} from '../../lib/workspace';
+import type { OpenFile, CursorPosition } from '../../lib/workspace';
+import { subscribeToAction } from '../../lib/keybindings';
+
+export component EditorArea() {
+  let currentActiveId = track<string | null>(activeFileId);
+  let activeFile = track<OpenFile | null>(getActiveFile());
+  let currentCursor = track<CursorPosition>({ line: 1, column: 1 });
+
+  // Go to Line dialog state
+  let goToLineOpen = track(false);
+  let goToLineTarget = track<number | null>(null);
+
+  // Find/Replace state
+  let openFind = track(false);
+  let openFindReplace = track(false);
+
+  // Focus editor state
+  let focusEditor = track(false);
+
+  // Subscribe to state changes from workspace
+  effect(() => {
+    const unsubscribeActive = subscribeToActiveFile((id) => {
+      @currentActiveId = id;
+      @activeFile = getActiveFile();
+    });
+
+    const unsubscribeFiles = subscribeToOpenFiles(() => {
+      // When files change, re-fetch active file (content may have updated)
+      @activeFile = getActiveFile();
+    });
+
+    const unsubscribeCursor = subscribeToCursorPosition((pos) => {
+      @currentCursor = pos;
+    });
+
+    return () => {
+      unsubscribeActive();
+      unsubscribeFiles();
+      unsubscribeCursor();
+    };
+  });
+
+  // Subscribe to keybinding action events
+  // Note: Save and Close are handled by the global keybinding manager in App.ripple
+  effect(() => {
+    const unsubscribeGoToLine = subscribeToAction('editor.goToLine', () => {
+      const file = @activeFile;
+      if (file && !isSpecialTab(file)) {
+        @goToLineOpen = true;
+      }
+    });
+
+    const unsubscribeFind = subscribeToAction('edit.find', () => {
+      const file = @activeFile;
+      if (file && !isSpecialTab(file)) {
+        @openFind = true;
+      }
+    });
+
+    const unsubscribeFindReplace = subscribeToAction('edit.findReplace', () => {
+      const file = @activeFile;
+      if (file && !isSpecialTab(file)) {
+        @openFindReplace = true;
+      }
+    });
+
+    const unsubscribeFocusEditor = subscribeToAction('editor.focusEditor', () => {
+      const file = @activeFile;
+      if (file && !isSpecialTab(file)) {
+        @focusEditor = true;
+      }
+    });
+
+    const unsubscribeGoToLineExternal = subscribeToGoToLine((line: number) => {
+      const file = @activeFile;
+      if (file && !isSpecialTab(file)) {
+        @goToLineTarget = line;
+      }
+    });
+
+    return () => {
+      unsubscribeGoToLine();
+      unsubscribeFind();
+      unsubscribeFindReplace();
+      unsubscribeFocusEditor();
+      unsubscribeGoToLineExternal();
+    };
+  });
+
+  const handleContentChange = (id: string, content: string) => {
+    updateFileContent(id, content);
+  };
+
+  const handleGoToLine = (line: number) => {
+    @goToLineTarget = line;
+    @goToLineOpen = false;
+  };
+
+  const handleGoToLineClose = () => {
+    @goToLineOpen = false;
+  };
+
+  // Calculate max lines for active file
+  const getMaxLines = () => {
+    const file = @activeFile;
+    if (!file) return 1;
+    return file.content.split('\n').length;
+  };
+
+  // Consume goToLineTarget for CodeEditor
+  const goToLine = @goToLineTarget;
+
+  // Consume find/replace flags for CodeEditor
+  const findOpen = @openFind;
+  const findReplaceOpen = @openFindReplace;
+
+  // Consume focus editor flag for CodeEditor
+  const shouldFocusEditor = @focusEditor;
+
+  // Reset target after it's consumed
+  effect(() => {
+    if (@goToLineTarget !== null) {
+      // Reset after a tick so CodeEditor can consume it
+      setTimeout(() => {
+        @goToLineTarget = null;
+      }, 0);
+    }
+  });
+
+  // Reset find flag after consumed
+  effect(() => {
+    if (@openFind) {
+      setTimeout(() => {
+        @openFind = false;
+      }, 0);
+    }
+  });
+
+  // Reset find/replace flag after consumed
+  effect(() => {
+    if (@openFindReplace) {
+      setTimeout(() => {
+        @openFindReplace = false;
+      }, 0);
+    }
+  });
+
+  // Reset focus editor flag after consumed
+  effect(() => {
+    if (@focusEditor) {
+      setTimeout(() => {
+        @focusEditor = false;
+      }, 0);
+    }
+  });
+
+  // Check if active file is a special tab
+  const isSettingsTab = () => {
+    const file = @activeFile;
+    return file?.specialTab === 'settings' || file?.specialTab === 'settings-keybindings';
+  };
+
+  const getSettingsInitialTab = () => {
+    const file = @activeFile;
+    if (file?.specialTab === 'settings-keybindings') {
+      return 'keybindings';
+    }
+    return 'general';
+  };
+
+  <div class="flex flex-col h-full bg-editor-bg" data-testid="editor-area">
+    <EditorTabs />
+    <Breadcrumbs />
+
+    <div class="flex-1 min-h-0 relative">
+      if (isSettingsTab()) {
+        <div class="absolute inset-0 overflow-auto">
+          <SettingsPage initialTab={getSettingsInitialTab()} />
+        </div>
+      } else if (@activeFile && !isSpecialTab(@activeFile)) {
+        <div class="absolute inset-0">
+          <CodeEditor
+            file={@activeFile}
+            onContentChange={handleContentChange}
+            {goToLine}
+            openFind={findOpen}
+            openFindReplace={findReplaceOpen}
+            focusEditor={shouldFocusEditor}
+          />
+        </div>
+      } else {
+        <div class="absolute inset-0 flex items-center justify-center">
+          <div class="flex flex-col items-center text-center max-w-[300px]">
+            <svg
+              class="w-16 h-16 mb-4 text-text-muted opacity-30"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path
+                d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"
+              />
+            </svg>
+            <h2 class="text-2xl font-medium text-text-primary m-0 mb-2">{'JereKode'}</h2>
+            <p class="text-[13px] text-text-muted m-0 mb-6">{'No file is open'}</p>
+            <div class="flex flex-col gap-2 w-full">
+              <div
+                class="flex items-center justify-between px-3 py-2 bg-bg-surface rounded-md text-xs"
+              >
+                <kbd
+                  class="px-2 py-0.5 bg-bg-elevated border border-border-default rounded font-mono text-[11px] text-text-secondary"
+                >
+                  {'Ctrl+P'}
+                </kbd>
+                <span class="text-text-muted">{'Quick Open'}</span>
+              </div>
+              <div
+                class="flex items-center justify-between px-3 py-2 bg-bg-surface rounded-md text-xs"
+              >
+                <kbd
+                  class="px-2 py-0.5 bg-bg-elevated border border-border-default rounded font-mono text-[11px] text-text-secondary"
+                >
+                  {'Ctrl+,'}
+                </kbd>
+                <span class="text-text-muted">{'Settings'}</span>
+              </div>
+              <div
+                class="flex items-center justify-between px-3 py-2 bg-bg-surface rounded-md text-xs"
+              >
+                <kbd
+                  class="px-2 py-0.5 bg-bg-elevated border border-border-default rounded font-mono text-[11px] text-text-secondary"
+                >
+                  {'Ctrl+`'}
+                </kbd>
+                <span class="text-text-muted">{'Toggle Terminal'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      }
+    </div>
+
+    <GoToLineDialog
+      isOpen={goToLineOpen}
+      maxLine={getMaxLines()}
+      currentLine={@currentCursor.line}
+      onGoToLine={handleGoToLine}
+      onClose={handleGoToLineClose}
+    />
+  </div>
+}

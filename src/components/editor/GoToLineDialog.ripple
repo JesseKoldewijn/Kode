@@ -1,0 +1,175 @@
+import { track, effect, type Tracked, trackSplit } from 'ripple';
+
+export interface GoToLineDialogProps {
+  isOpen: Tracked<boolean>;
+  maxLine: number;
+  currentLine: number;
+  onGoToLine: (line: number) => void;
+  onClose: () => void;
+}
+
+export component GoToLineDialog(props: GoToLineDialogProps) {
+  const [isOpen, rest] = trackSplit(props, ['isOpen']);
+  const { maxLine, currentLine, onGoToLine, onClose } = @rest;
+
+  let inputRef = track<HTMLInputElement | null>(null);
+  let inputValue = track((currentLine || 1).toString());
+  let errorMessage = track('');
+
+  // Reset input when dialog opens
+  effect(() => {
+    if (@isOpen) {
+      @inputValue = (currentLine || 1).toString();
+      @errorMessage = '';
+      // Focus input after a small delay for DOM to render
+      setTimeout(() => {
+        if (@inputRef) {
+          @inputRef.select();
+        }
+      }, 0);
+    }
+  });
+
+  // Escape key handling
+  effect(() => {
+    if (!@isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  });
+
+  const validateAndGo = () => {
+    const lineNum = parseInt(@inputValue, 10);
+
+    if (isNaN(lineNum)) {
+      @errorMessage = 'Please enter a valid number';
+      return;
+    }
+
+    if (lineNum < 1) {
+      @errorMessage = 'Line number must be at least 1';
+      return;
+    }
+
+    if (lineNum > maxLine) {
+      @errorMessage = `Line number must not exceed ${maxLine}`;
+      return;
+    }
+
+    @errorMessage = '';
+    onGoToLine(lineNum);
+    onClose();
+  };
+
+  const handleInputChange = (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    @inputValue = target.value;
+    @errorMessage = '';
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      validateAndGo();
+    }
+  };
+
+  const handleBackdropClick = (e: MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  };
+
+  <div
+    data-testid="editor-goto-line"
+    class={{
+      'fixed inset-0 z-[1000] flex items-start justify-center pt-[15vh]': true,
+      hidden: !@isOpen,
+    }}
+    onClick={handleBackdropClick}
+  >
+    <div class="absolute inset-0 bg-black/60" />
+
+    <div
+      class="relative bg-bg-surface border border-border-default rounded-lg shadow-xl w-[320px] animate-slideDown"
+    >
+      <header class="px-4 py-3 border-b border-border-muted">
+        <h2 class="text-sm font-medium text-text-primary m-0">{'Go to Line'}</h2>
+      </header>
+
+      <div class="p-4">
+        <div class="flex items-center gap-3">
+          <label class="text-sm text-text-secondary whitespace-nowrap">{'Line:'}</label>
+          <input
+            data-testid="editor-goto-line-input"
+            type="text"
+            class="flex-1 px-3 py-2 text-sm bg-bg-elevated border border-border-default rounded text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+            placeholder={`1-${maxLine}`}
+            value={@inputValue}
+            onInput={handleInputChange}
+            onKeydown={handleKeyDown}
+            ref={(el: HTMLInputElement) => {
+              @inputRef = el;
+              return () => {
+                @inputRef = null;
+              };
+            }}
+          />
+        </div>
+
+        <p class={{ 'text-xs text-error mt-2 ml-[48px]': true, hidden: !@errorMessage }}>
+          {@errorMessage}
+        </p>
+
+        <p class="text-xs text-text-muted mt-2 ml-[48px]">
+          {'Current line: '}
+          {currentLine || 1}
+          {' / '}
+          {maxLine || 1}
+        </p>
+      </div>
+
+      <footer
+        class="flex items-center justify-end gap-2 px-4 py-3 border-t border-border-muted bg-bg-elevated/50 rounded-b-lg"
+      >
+        <button
+          class="px-3 py-1.5 text-sm font-medium text-text-secondary bg-transparent border border-border-default rounded hover:bg-bg-hover hover:text-text-primary transition-colors"
+          onClick={onClose}
+        >
+          {'Cancel'}
+        </button>
+
+        <button
+          class="px-3 py-1.5 text-sm font-medium text-white bg-accent rounded hover:bg-accent/90 transition-colors"
+          onClick={validateAndGo}
+        >
+          {'Go'}
+        </button>
+      </footer>
+    </div>
+  </div>
+
+  <style>
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .animate-slideDown {
+      animation: slideDown 0.15s ease-out;
+    }
+  </style>
+}

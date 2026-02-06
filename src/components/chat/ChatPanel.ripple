@@ -1,0 +1,327 @@
+import { track, effect } from 'ripple';
+import { ChatMessage } from './ChatMessage.ripple';
+import { ChatInput } from './ChatInput.ripple';
+import { agent, type AgentOutput, type AgentExit } from '../../lib/tauri';
+import { workspacePath } from '../../lib/workspace';
+import { subscribeToAction } from '../../lib/keybindings';
+import { stripAnsi } from '../../lib/ansi';
+import { getAgentSettings } from '../../lib/agent-settings';
+
+export interface Message {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: Date;
+  isStreaming?: boolean;
+}
+
+export component ChatPanel() {
+  let messages = track<Message[]>([
+    {
+      id: '1',
+      role: 'assistant',
+      content: `Hello! I'm your AI coding assistant.
+
+I can help you with:
+- Writing and explaining code
+- Debugging issues
+- Refactoring suggestions
+
+Type your question below to get started!`,
+      timestamp: new Date(),
+    },
+  ]);
+
+  let inputValue = track('');
+  let isLoading = track(false);
+  let agentId = track<string | null>(null);
+  let isAgentRunning = track(false);
+  let currentStreamingMessage = track<Message | null>(null);
+  let unlistenOutput = track<(() => void) | null>(null);
+  let unlistenExit = track<(() => void) | null>(null);
+  let chatInputRef = track<HTMLTextAreaElement | null>(null);
+  let scrollContainerRef = track<HTMLDivElement | null>(null);
+
+  // Auto-scroll to bottom when near the bottom
+  const scrollToBottom = () => {
+    const container = @scrollContainerRef;
+    if (!container) return;
+    // Only auto-scroll if user is near the bottom (within 100px)
+    const isNearBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    if (isNearBottom) {
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight;
+      });
+    }
+  };
+
+  // Subscribe to chat.focus action
+  effect(() => {
+    const unsubscribe = subscribeToAction('chat.focus', () => {
+      const input = @chatInputRef;
+      if (input) {
+        input.focus();
+      }
+    });
+
+    return unsubscribe;
+  });
+
+  // Subscribe to chat.newConversation action
+  effect(() => {
+    const unsubscribe = subscribeToAction('chat.newConversation', () => {
+      clearChat();
+    });
+
+    return unsubscribe;
+  });
+
+  effect(() => {
+    const setupListeners = async () => {
+      const outputUnlisten = await agent.onOutput((output: AgentOutput) => {
+        if (output.id !== @agentId) return;
+
+        let streaming = @currentStreamingMessage;
+        if (!streaming) {
+          streaming = {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            content: '',
+            timestamp: new Date(),
+            isStreaming: true,
+          };
+          @messages = [...@messages, streaming];
+          @currentStreamingMessage = streaming;
+        }
+        // Update content immutably to trigger reactive update
+        const newContent = streaming.content + stripAnsi(output.data) + '\n';
+        const updatedMessage = { ...streaming, content: newContent };
+        @currentStreamingMessage = updatedMessage;
+        // Update messages array immutably
+        @messages = @messages.map((m) => (m.id === streaming!.id ? updatedMessage : m));
+        scrollToBottom();
+      });
+      @unlistenOutput = outputUnlisten;
+
+      const exitUnlisten = await agent.onExit((exit: AgentExit) => {
+        if (exit.id !== @agentId) return;
+        @isAgentRunning = false;
+        @isLoading = false;
+        const streaming = @currentStreamingMessage;
+        if (streaming) {
+          // Update isStreaming immutably
+          const finalMessage = { ...streaming, isStreaming: false };
+          @messages = @messages.map((m) => (m.id === streaming.id ? finalMessage : m));
+          @currentStreamingMessage = null;
+        }
+      });
+      @unlistenExit = exitUnlisten;
+    };
+
+    setupListeners();
+
+    return () => {
+      if (@unlistenOutput) @unlistenOutput();
+      if (@unlistenExit) @unlistenExit();
+    };
+  });
+
+  const startAgent = async () => {
+    if (@isAgentRunning) return;
+
+    const id = `agent-${Date.now()}`;
+    @agentId = id;
+
+    try {
+      const cwd = workspacePath || undefined;
+      const settings = getAgentSettings();
+      await agent.start(id, settings.command, settings.args, cwd);
+      @isAgentRunning = true;
+    } catch (error) {
+      console.error('Failed to start agent:', error);
+      @messages = [
+        ...@messages,
+        {
+          id: `error-${Date.now()}`,
+          role: 'system',
+          content: `Failed to start agent: ${error}`,
+          timestamp: new Date(),
+        },
+      ];
+    }
+  };
+
+  const sendMessage = async () => {
+    const content = @inputValue.trim();
+    if (!content || @isLoading) return;
+
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content,
+      timestamp: new Date(),
+    };
+    @messages = [...@messages, userMessage];
+    @inputValue = '';
+    @isLoading = true;
+    // Always scroll to bottom when user sends a message
+    requestAnimationFrame(() => {
+      const container = @scrollContainerRef;
+      if (container) container.scrollTop = container.scrollHeight;
+    });
+
+    if (!@isAgentRunning) {
+      await startAgent();
+    }
+
+    if (@agentId && @isAgentRunning) {
+      try {
+        await agent.send(@agentId, content);
+      } catch (error) {
+        console.error('Failed to send message:', error);
+        @isLoading = false;
+
+        setTimeout(() => {
+          const assistantMessage: Message = {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            content: `Demo response: "${content}"\n\nAgent not connected.`,
+            timestamp: new Date(),
+          };
+          @messages = [...@messages, assistantMessage];
+          @isLoading = false;
+          scrollToBottom();
+        }, 500);
+      }
+    } else {
+      setTimeout(() => {
+        const assistantMessage: Message = {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content: `Demo response: "${content}"\n\nAgent could not be started.`,
+          timestamp: new Date(),
+        };
+        @messages = [...@messages, assistantMessage];
+        @isLoading = false;
+        scrollToBottom();
+      }, 500);
+    }
+  };
+
+  const stopAgent = async () => {
+    if (@agentId && @isAgentRunning) {
+      try {
+        await agent.stop(@agentId);
+      } catch (error) {
+        console.error('Failed to stop agent:', error);
+      }
+    }
+    @isAgentRunning = false;
+    @isLoading = false;
+    @currentStreamingMessage = null;
+  };
+
+  const clearChat = () => {
+    stopAgent();
+    @messages = [
+      {
+        id: 'welcome',
+        role: 'assistant',
+        content: 'Chat cleared. How can I help you?',
+        timestamp: new Date(),
+      },
+    ];
+  };
+
+  <div class="flex flex-col h-full bg-bg-surface">
+    <header class="flex items-center justify-between px-4 py-3 border-b border-border-default">
+      <div
+        class="flex items-center gap-2 text-[11px] font-semibold tracking-wider text-text-secondary"
+      >
+        <svg class="w-4 h-4 text-accent" viewBox="0 0 16 16" fill="currentColor">
+          <path
+            d="M5 8.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5zm0-2a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm0-2a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5z"
+          />
+          <path
+            d="M3 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H3zm0 1h10a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z"
+          />
+        </svg>
+        <span>{'AI CHAT'}</span>
+        <span
+          class={{
+            'px-2 py-0.5 text-[10px] font-medium rounded-full': true,
+            'bg-bg-muted text-text-secondary': !@isAgentRunning,
+            'bg-success-muted text-success': @isAgentRunning,
+          }}
+        >
+          {@isAgentRunning ? 'Connected' : 'Demo'}
+        </span>
+      </div>
+      <div class="flex gap-1">
+        <button
+          class={{
+            'flex items-center justify-center w-7 h-7 rounded-md border-none bg-transparent text-text-muted cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary': true,
+            hidden: !@isAgentRunning,
+          }}
+          title="Stop agent"
+          onClick={stopAgent}
+        >
+          <svg class="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+            <path
+              d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"
+            />
+          </svg>
+        </button>
+        <button
+          class="flex items-center justify-center w-7 h-7 rounded-md border-none bg-transparent text-text-muted cursor-pointer transition-all duration-150 hover:bg-bg-hover hover:text-text-primary"
+          title="Clear chat"
+          onClick={clearChat}
+        >
+          <svg class="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+            <path
+              d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"
+            />
+            <path
+              fill-rule="evenodd"
+              d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"
+            />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div
+      class="flex-1 overflow-y-auto p-4 flex flex-col gap-4"
+      ref={(el: HTMLDivElement) => {
+        @scrollContainerRef = el;
+        return () => {
+          @scrollContainerRef = null;
+        };
+      }}
+    >
+      for (const message of @messages; key message.id) {
+        <ChatMessage {message} />
+      }
+
+      <div
+        class={{
+          'flex items-center gap-2 text-text-muted text-xs': true,
+          hidden: !@isLoading || @currentStreamingMessage,
+        }}
+      >
+        <span class="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" />
+        <span class="w-1.5 h-1.5 bg-accent rounded-full animate-bounce [animation-delay:0.1s]" />
+        <span class="w-1.5 h-1.5 bg-accent rounded-full animate-bounce [animation-delay:0.2s]" />
+        <span>{'Thinking...'}</span>
+      </div>
+    </div>
+
+    <ChatInput
+      {@inputValue}
+      {@isLoading}
+      {sendMessage}
+      onTextareaRef={(el) => (@chatInputRef = el)}
+    />
+  </div>
+}

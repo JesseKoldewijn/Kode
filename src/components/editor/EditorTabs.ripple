@@ -1,0 +1,257 @@
+import { track, effect } from 'ripple';
+import {
+  openFiles,
+  activeFileId,
+  setActiveFileId,
+  closeFile,
+  saveFile,
+  reorderTab,
+  subscribeToActiveFile,
+  subscribeToOpenFiles,
+  isSpecialTab,
+} from '../../lib/workspace';
+import type { OpenFile } from '../../lib/workspace';
+import { ConfirmDialog, type ConfirmDialogResult } from '../common/ConfirmDialog.ripple';
+
+export component EditorTabs() {
+  let currentActiveId = track<string | null>(activeFileId);
+  let filesVersion = track(0); // Used to trigger re-render when files change
+
+  // Dialog state
+  let dialogOpen = track(false);
+  let pendingCloseFile = track<OpenFile | null>(null);
+
+  // Drag-and-drop state
+  let dragFromIndex = track(-1);
+  let dragOverIndex = track(-1);
+
+  // Subscribe to state changes
+  effect(() => {
+    const unsubscribeActive = subscribeToActiveFile((id) => {
+      @currentActiveId = id;
+    });
+
+    const unsubscribeFiles = subscribeToOpenFiles(() => {
+      @filesVersion = @filesVersion + 1;
+    });
+
+    return () => {
+      unsubscribeActive();
+      unsubscribeFiles();
+    };
+  });
+
+  const handleCloseFile = (id: string, e: MouseEvent) => {
+    e.stopPropagation();
+
+    // Find the file to check if it's dirty
+    const file = openFiles.find((f) => f.id === id);
+    if (!file) return;
+
+    // Special tabs can always be closed without warning
+    if (isSpecialTab(file)) {
+      closeFile(id);
+      return;
+    }
+
+    if (file.isDirty) {
+      // Show confirmation dialog
+      @pendingCloseFile = file;
+      @dialogOpen = true;
+    } else {
+      // Not dirty, close immediately
+      closeFile(id);
+    }
+  };
+
+  const handleDialogResult = async (result: ConfirmDialogResult) => {
+    const file = @pendingCloseFile;
+    @dialogOpen = false;
+
+    if (!file) return;
+
+    switch (result) {
+      case 'save':
+        // Save then close
+        await saveFile(file.id);
+        closeFile(file.id);
+        break;
+      case 'dont-save':
+        // Close without saving
+        closeFile(file.id);
+        break;
+      case 'cancel':
+        // Do nothing, keep file open
+        break;
+    }
+
+    @pendingCloseFile = null;
+  };
+
+  const handleSelectFile = (id: string) => {
+    setActiveFileId(id);
+  };
+
+  const handleDragStart = (e: DragEvent, index: number) => {
+    @dragFromIndex = index;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(index));
+    }
+  };
+
+  const handleDragOver = (e: DragEvent, index: number) => {
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'move';
+    }
+    @dragOverIndex = index;
+  };
+
+  const handleDragLeave = () => {
+    @dragOverIndex = -1;
+  };
+
+  const handleDrop = (e: DragEvent, toIndex: number) => {
+    e.preventDefault();
+    const fromIndex = @dragFromIndex;
+    if (fromIndex >= 0 && fromIndex !== toIndex) {
+      reorderTab(fromIndex, toIndex);
+    }
+    @dragFromIndex = -1;
+    @dragOverIndex = -1;
+  };
+
+  const handleDragEnd = () => {
+    @dragFromIndex = -1;
+    @dragOverIndex = -1;
+  };
+
+  const getFileIcon = (file: OpenFile): string => {
+    // Special tab icons
+    if (file.specialTab === 'settings' || file.specialTab === 'settings-keybindings') {
+      return '#888888'; // Gray for settings
+    }
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'ts':
+      case 'tsx':
+        return '#3178c6';
+      case 'js':
+      case 'jsx':
+        return '#f7df1e';
+      case 'json':
+        return '#cbcb41';
+      case 'md':
+        return '#519aba';
+      case 'css':
+        return '#563d7c';
+      case 'html':
+        return '#e34c26';
+      case 'rs':
+        return '#dea584';
+      case 'py':
+        return '#3572a5';
+      case 'toml':
+        return '#9c4121';
+      case 'ripple':
+        return '#61dafb';
+      default:
+        return '#6e6e6e';
+    }
+  };
+
+  // Consume filesVersion to ensure reactivity
+  const _version = @filesVersion;
+
+  <div
+    class="flex items-end h-9 bg-bg-surface border-b border-border-default"
+    data-testid="editor-tabs"
+  >
+    <div class="flex items-end overflow-x-auto scrollbar-none">
+      for (const file of openFiles; index i) {
+        const isActive = file.id === @currentActiveId;
+        const isSettings = isSpecialTab(file);
+        const isDragOver = i === @dragOverIndex && @dragFromIndex !== i;
+
+        <button
+          data-testid={`editor-tab:${file.id}`}
+          class={{
+            'group flex items-center gap-2 h-[34px] px-3 text-xs border-r border-border-muted cursor-pointer transition-all duration-150 relative': true,
+            'bg-bg-surface text-text-secondary hover:bg-bg-hover': !isActive,
+            'bg-editor-bg text-text-primary': isActive,
+            'opacity-50': @dragFromIndex === i,
+            'border-l-2 border-l-accent': isDragOver,
+          }}
+          onClick={() => handleSelectFile(file.id)}
+          draggable="true"
+          onDragStart={(e) => handleDragStart(e, i)}
+          onDragOver={(e) => handleDragOver(e, i)}
+          onDragLeave={handleDragLeave}
+          onDrop={(e) => handleDrop(e, i)}
+          onDragEnd={handleDragEnd}
+        >
+          if (isSettings) {
+            <svg
+              class="w-3.5 h-3.5 shrink-0 text-text-muted"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+              />
+            </svg>
+          } else {
+            <span
+              class="w-2 h-2 rounded-full shrink-0"
+              style={{ backgroundColor: getFileIcon(file) }}
+            />
+          }
+          <span class="whitespace-nowrap">{file.name}</span>
+          <span
+            data-testid={`editor-tab-dirty:${file.id}`}
+            class={{
+              'w-2 h-2 bg-accent rounded-full shrink-0': true,
+              hidden: !file.isDirty || isSettings,
+            }}
+          />
+          <span
+            data-testid={`editor-tab-close:${file.id}`}
+            class="flex items-center justify-center w-[18px] h-[18px] rounded opacity-0 hover:bg-bg-active transition-all duration-150 group-hover:opacity-100 cursor-pointer"
+            role="button"
+            tabindex="0"
+            aria-label={`Close ${file.name}`}
+            title="Close"
+            onClick={(e) => handleCloseFile(file.id, e)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleCloseFile(file.id, e);
+              }
+            }}
+          >
+            <svg class="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+              <path
+                d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"
+              />
+            </svg>
+          </span>
+        </button>
+      }
+    </div>
+    <div class="flex-1 h-[34px] border-b border-border-default" />
+  </div>
+
+  <ConfirmDialog
+    isOpen={@dialogOpen}
+    title="Unsaved Changes"
+    message="Do you want to save the changes you made to this file?"
+    fileName={@pendingCloseFile?.name || ''}
+    showSaveButton={true}
+    onResult={handleDialogResult}
+  />
+}

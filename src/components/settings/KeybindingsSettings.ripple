@@ -1,0 +1,345 @@
+import { track, effect } from 'ripple';
+import {
+  KeybindingManager,
+  getKeybindingManager,
+  initKeybindingManager,
+  getDisplayString,
+  getCategories,
+  actions,
+  getPresetNames,
+  loadKeybindingSettings,
+  saveKeybindingSettings,
+  type PresetName,
+  type Action,
+} from '../../lib/keybindings';
+
+export component KeybindingsSettings() {
+  let manager = track<KeybindingManager | null>(null);
+  let isLoading = track(true);
+  let currentPreset = track<PresetName>('vscode');
+  let searchQuery = track('');
+  let selectedCategory = track<string | null>(null);
+  let rebindingAction = track<string | null>(null);
+  let actionsData = track<
+    Array<{
+      id: string;
+      label: string;
+      category: string;
+      description?: string;
+      binding: string;
+      isCustom: boolean;
+      isDisabled: boolean;
+    }>
+  >([]);
+
+  // Initialize keybinding manager
+  effect(() => {
+    let unsubscribe: (() => void) | undefined;
+
+    const init = async () => {
+      try {
+        const settings = await loadKeybindingSettings();
+        const mgr = initKeybindingManager(settings);
+        @manager = mgr;
+        @currentPreset = mgr.getPreset();
+        @actionsData = mgr.getAllActionsWithBindings();
+        @isLoading = false;
+
+        // Subscribe to changes
+        unsubscribe = mgr.subscribe(() => {
+          @actionsData = mgr.getAllActionsWithBindings();
+          @currentPreset = mgr.getPreset();
+        });
+      } catch (error) {
+        console.error('Failed to initialize keybindings:', error);
+        @isLoading = false;
+      }
+    };
+
+    init();
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  });
+
+  // Get filtered actions
+  const getFilteredActions = () => {
+    let filtered = @actionsData;
+
+    // Filter by search
+    const query = @searchQuery.toLowerCase();
+    if (query) {
+      filtered = filtered.filter(
+        (a) => a.label.toLowerCase().includes(query) || a.id.toLowerCase().includes(query) ||
+          (a.description?.toLowerCase().includes(query) ?? false) ||
+          a.binding.toLowerCase().includes(query),
+      );
+    }
+
+    // Filter by category
+    const cat = @selectedCategory;
+    if (cat) {
+      filtered = filtered.filter((a) => a.category === cat);
+    }
+
+    return filtered;
+  };
+
+  // Handle preset change
+  const handlePresetChange = async (preset: PresetName) => {
+    const mgr = @manager;
+    if (!mgr) return;
+
+    mgr.setPreset(preset);
+    await saveKeybindingSettings(mgr.getSettings());
+  };
+
+  // Handle rebinding
+  const startRebinding = (actionId: string) => {
+    @rebindingAction = actionId;
+  };
+
+  const cancelRebinding = () => {
+    @rebindingAction = null;
+  };
+
+  // Handle keydown for rebinding
+  effect(() => {
+    const actionId = @rebindingAction;
+    if (!actionId) return;
+
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Escape to cancel
+      if (e.key === 'Escape') {
+        @rebindingAction = null;
+        return;
+      }
+
+      // Skip modifier-only keys
+      if (['Control', 'Alt', 'Shift', 'Meta', 'OS'].includes(e.key)) {
+        return;
+      }
+
+      // Build key string
+      const parts: string[] = [];
+      if (e.ctrlKey) parts.push('ctrl');
+      if (e.altKey) parts.push('alt');
+      if (e.shiftKey) parts.push('shift');
+      if (e.metaKey) parts.push('cmd');
+      parts.push(e.key.toLowerCase());
+
+      const keyString = parts.join('+');
+      const mgr = @manager;
+      if (mgr) {
+        mgr.setBinding(actionId, keyString);
+        await saveKeybindingSettings(mgr.getSettings());
+      }
+
+      @rebindingAction = null;
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  });
+
+  // Reset single binding
+  const resetBinding = async (actionId: string) => {
+    const mgr = @manager;
+    if (!mgr) return;
+    mgr.resetBinding(actionId);
+    await saveKeybindingSettings(mgr.getSettings());
+  };
+
+  // Reset all to preset
+  const resetAllToPreset = async () => {
+    const mgr = @manager;
+    if (!mgr) return;
+    mgr.resetToPreset();
+    await saveKeybindingSettings(mgr.getSettings());
+  };
+
+  const categories = getCategories();
+  const presetNames = getPresetNames();
+  const filteredActions = getFilteredActions();
+
+  if (@isLoading) {
+    <div class="flex items-center justify-center h-64">
+      <div class="text-text-muted text-sm">{'Loading keybindings...'}</div>
+    </div>
+  } else {
+    <div class="max-w-4xl">
+      <header class="mb-6">
+        <h1 class="text-xl font-semibold text-text-primary mb-2">{'Keyboard Shortcuts'}</h1>
+        <p class="text-sm text-text-muted">
+          {'Customize keyboard shortcuts to match your workflow.'}
+        </p>
+      </header>
+
+      <div class="flex items-center gap-4 mb-6">
+        <div class="flex items-center gap-2">
+          <label class="text-sm text-text-secondary">{'Preset:'}</label>
+          <select
+            class="px-3 py-1.5 text-sm bg-bg-elevated border border-border-default rounded text-text-primary outline-none focus:border-accent"
+            value={@currentPreset}
+            onChange={(e: Event) => {
+              const target = e.target as HTMLSelectElement;
+              handlePresetChange(target.value as PresetName);
+            }}
+          >
+            for (const preset of presetNames; key preset) {
+              <option value={preset}>
+                {preset === 'vscode'
+                  ? 'Visual Studio Code'
+                  : preset === 'cursor'
+                    ? 'Cursor'
+                    : 'JetBrains'}
+              </option>
+            }
+          </select>
+        </div>
+
+        <button
+          class="px-3 py-1.5 text-sm text-text-muted hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
+          onClick={resetAllToPreset}
+        >
+          {'Reset All'}
+        </button>
+      </div>
+
+      <div class="flex gap-4 mb-4">
+        <div class="flex-1">
+          <input
+            type="text"
+            placeholder="Search keybindings..."
+            class="w-full px-3 py-2 text-sm bg-bg-elevated border border-border-default rounded text-text-primary outline-none focus:border-accent placeholder:text-text-muted"
+            value={@searchQuery}
+            onInput={(e: Event) => {
+              const target = e.target as HTMLInputElement;
+              @searchQuery = target.value;
+            }}
+          />
+        </div>
+
+        <select
+          class="px-3 py-2 text-sm bg-bg-elevated border border-border-default rounded text-text-primary outline-none focus:border-accent"
+          value={@selectedCategory ?? ''}
+          onChange={(e: Event) => {
+            const target = e.target as HTMLSelectElement;
+            @selectedCategory = target.value || null;
+          }}
+        >
+          <option value="">{'All Categories'}</option>
+          for (const cat of categories; key cat) {
+            <option value={cat}>{cat}</option>
+          }
+        </select>
+      </div>
+
+      <div class="border border-border-default rounded-lg overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-bg-surface border-b border-border-default">
+            <tr>
+              <th class="text-left px-4 py-2 font-medium text-text-secondary">{'Command'}</th>
+              <th class="text-left px-4 py-2 font-medium text-text-secondary w-40">
+                {'Keybinding'}
+              </th>
+              <th class="text-right px-4 py-2 font-medium text-text-secondary w-24">{'Actions'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            for (const action of filteredActions; key action.id) {
+              <tr class="border-b border-border-subtle hover:bg-bg-hover">
+                <td class="px-4 py-3">
+                  <div class="font-medium text-text-primary">{action.label}</div>
+                  <div class="text-xs text-text-muted">{action.id}</div>
+                </td>
+                <td class="px-4 py-3">
+                  if (@rebindingAction === action.id) {
+                    <div class="flex items-center gap-2">
+                      <kbd
+                        class="px-2 py-1 bg-accent/20 border border-accent rounded text-xs font-mono text-accent animate-pulse"
+                      >
+                        {'Press keys...'}
+                      </kbd>
+                      <button
+                        class="text-xs text-text-muted hover:text-text-primary"
+                        onClick={cancelRebinding}
+                      >
+                        {'Esc'}
+                      </button>
+                    </div>
+                  } else if (action.binding) {
+                    <kbd
+                      class={{
+                        'px-2 py-1 bg-bg-elevated border border-border-default rounded text-xs font-mono': true,
+                        'text-accent': action.isCustom,
+                        'text-text-secondary': !action.isCustom,
+                      }}
+                    >
+                      {getDisplayString(action.binding)}
+                    </kbd>
+                  } else {
+                    <span class="text-text-muted text-xs">{'Not set'}</span>
+                  }
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <div class="flex items-center justify-end gap-1">
+                    <button
+                      class="p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-surface rounded transition-colors"
+                      onClick={() => startRebinding(action.id)}
+                      title="Change keybinding"
+                    >
+                      <svg
+                        class="w-4 h-4"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                    if (action.isCustom) {
+                      <button
+                        class="p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-surface rounded transition-colors"
+                        onClick={() => resetBinding(action.id)}
+                        title="Reset to default"
+                      >
+                        <svg
+                          class="w-4 h-4"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        >
+                          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                          <path d="M3 3v5h5" />
+                        </svg>
+                      </button>
+                    }
+                  </div>
+                </td>
+              </tr>
+            }
+            if (filteredActions.length === 0) {
+              <tr>
+                <td colspan="3" class="px-4 py-8 text-center text-text-muted">
+                  {'No keybindings found matching your search.'}
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-4 text-xs text-text-muted">
+        {'Click the edit icon to change a keybinding. Custom bindings are shown in accent color.'}
+      </div>
+    </div>
+  }
+}

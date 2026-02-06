@@ -1,0 +1,197 @@
+import { effect, type Tracked, trackSplit } from 'ripple';
+import { shell } from '../../lib/tauri';
+
+export interface AboutDialogProps {
+  isOpen: Tracked<boolean>;
+  onClose: () => void;
+}
+
+export component AboutDialog(props: AboutDialogProps) {
+  const [isOpen, rest] = trackSplit(props, ['isOpen']);
+  const { onClose } = @rest;
+
+  const handleClose = () => {
+    if (onClose) onClose();
+  };
+  // Escape key handling
+  effect(() => {
+    if (!@isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        handleClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  });
+
+  const handleBackdropClick = (e: MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      handleClose();
+    }
+  };
+
+  const handleOpenLink = async (url: string) => {
+    await shell.openUrl(url);
+  };
+
+  <div
+    class={{
+      'fixed inset-0 z-[1000] flex items-center justify-center': true,
+      hidden: !@isOpen,
+    }}
+    onClick={handleBackdropClick}
+  >
+    <div class="absolute inset-0 bg-black/60" />
+
+    <div
+      class="relative bg-bg-surface border border-border-default rounded-lg shadow-xl w-[400px] animate-slideDown"
+    >
+      <header class="flex items-center justify-between px-5 py-4 border-b border-border-muted">
+        <h2 class="text-base font-semibold text-text-primary m-0">{'About JereKode'}</h2>
+        <button
+          class="p-1 text-text-muted hover:text-text-primary rounded transition-colors"
+          aria-label="Close About dialog"
+          title="Close"
+          onClick={handleClose}
+        >
+          <svg
+            class="w-4 h-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </header>
+
+      <div class="px-5 py-5">
+        <div class="flex items-center gap-4 mb-5">
+          <div class="w-14 h-14 rounded-xl bg-accent/15 flex items-center justify-center shrink-0">
+            <svg
+              class="w-8 h-8 text-accent"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
+              <polyline points="16 18 22 12 16 6" />
+              <polyline points="8 6 2 12 8 18" />
+              <line x1="14" y1="4" x2="10" y2="20" />
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-lg font-bold text-text-primary m-0">{'JereKode'}</h3>
+            <p class="text-sm text-text-muted mt-0.5">{'Version 0.0.1'}</p>
+          </div>
+        </div>
+
+        <p class="text-sm text-text-secondary leading-relaxed mb-5">
+          {'A performant, open-source desktop code editor with integrated AI chat support for CLI code agents.'}
+        </p>
+
+        <div class="space-y-3 mb-5">
+          <h4 class="text-xs font-semibold text-text-muted uppercase tracking-wider">
+            {'Built With'}
+          </h4>
+          <div class="grid grid-cols-2 gap-2">
+            <div
+              class="flex items-center gap-2 px-3 py-2 rounded-md bg-bg-elevated text-sm text-text-secondary"
+            >
+              <span class="w-2 h-2 rounded-full bg-info shrink-0" />
+              {'Tauri v2'}
+            </div>
+            <div
+              class="flex items-center gap-2 px-3 py-2 rounded-md bg-bg-elevated text-sm text-text-secondary"
+            >
+              <span class="w-2 h-2 rounded-full bg-warning shrink-0" />
+              {'Rust'}
+            </div>
+            <div
+              class="flex items-center gap-2 px-3 py-2 rounded-md bg-bg-elevated text-sm text-text-secondary"
+            >
+              <span class="w-2 h-2 rounded-full bg-accent shrink-0" />
+              {'Ripple'}
+            </div>
+            <div
+              class="flex items-center gap-2 px-3 py-2 rounded-md bg-bg-elevated text-sm text-text-secondary"
+            >
+              <span class="w-2 h-2 rounded-full bg-warning shrink-0" />
+              {'TypeScript'}
+            </div>
+            <div
+              class="flex items-center gap-2 px-3 py-2 rounded-md bg-bg-elevated text-sm text-text-secondary"
+            >
+              <span class="w-2 h-2 rounded-full bg-info shrink-0" />
+              {'CodeMirror 6'}
+            </div>
+            <div
+              class="flex items-center gap-2 px-3 py-2 rounded-md bg-bg-elevated text-sm text-text-secondary"
+            >
+              <span class="w-2 h-2 rounded-full bg-success shrink-0" />
+              {'xterm.js'}
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded-md transition-colors"
+            onClick={() => handleOpenLink('https://github.com/JereKode/JereKode')}
+          >
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"
+              />
+            </svg>
+            {'GitHub'}
+          </button>
+          <button
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded-md transition-colors"
+            onClick={() => handleOpenLink('https://github.com/JereKode/JereKode/issues')}
+          >
+            <svg
+              class="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            {'Report Issue'}
+          </button>
+        </div>
+      </div>
+
+      <footer class="px-5 py-3 border-t border-border-muted bg-bg-elevated/50 rounded-b-lg">
+        <p class="text-xs text-text-muted text-center">{'MIT License'}</p>
+      </footer>
+    </div>
+  </div>
+
+  <style>
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-10px) scale(0.98);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .animate-slideDown {
+      animation: slideDown 0.15s ease-out;
+    }
+  </style>
+}

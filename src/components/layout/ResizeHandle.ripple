@@ -1,0 +1,74 @@
+import { track, effect } from 'ripple';
+
+export type ResizeDirection = 'horizontal' | 'vertical';
+
+export component ResizeHandle(props: {
+  direction: ResizeDirection;
+  onResize: (delta: number) => void;
+  onResizeEnd?: () => void;
+  onResizeStart?: () => void;
+}) {
+  let isDragging = track(false);
+
+  const handleMouseDown = (e: MouseEvent) => {
+    e.preventDefault();
+    @isDragging = true;
+    if (props.onResizeStart) props.onResizeStart();
+
+    const startPos =
+      props.direction === 'horizontal' ? e.clientX : e.clientY;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const currentPos =
+        props.direction === 'horizontal' ? moveEvent.clientX : moveEvent.clientY;
+      const delta = currentPos - startPos;
+      props.onResize(delta);
+    };
+
+    const handleMouseUp = () => {
+      @isDragging = false;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      if (props.onResizeEnd) props.onResizeEnd();
+    };
+
+    document.body.style.cursor = props.direction === 'horizontal' ? 'col-resize' : 'row-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  if (@props.direction === 'horizontal') {
+    <div
+      class={{
+        'w-[4px] shrink-0 cursor-col-resize relative group z-10': true,
+        'bg-accent': @isDragging,
+      }}
+      onMouseDown={handleMouseDown}
+    >
+      <div
+        class={{
+          'absolute inset-y-0 -left-[2px] -right-[2px] group-hover:bg-accent transition-colors duration-150': true,
+          'bg-accent': @isDragging,
+        }}
+      />
+    </div>
+  } else {
+    <div
+      class={{
+        'h-[4px] shrink-0 cursor-row-resize relative group z-10': true,
+        'bg-accent': @isDragging,
+      }}
+      onMouseDown={handleMouseDown}
+    >
+      <div
+        class={{
+          'absolute inset-x-0 -top-[2px] -bottom-[2px] group-hover:bg-accent transition-colors duration-150': true,
+          'bg-accent': @isDragging,
+        }}
+      />
+    </div>
+  }
+}

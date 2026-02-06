@@ -1,0 +1,272 @@
+import { track } from 'ripple';
+import type { Message } from './ChatPanel.ripple';
+
+type InlineSegment = { type: 'text'; content: string } | { type: 'bold'; content: string } | {
+  type: 'italic';
+  content: string;
+} | { type: 'inlineCode'; content: string } | { type: 'link'; content: string; href: string };
+
+type ContentPart = { type: 'code'; content: string; language: string } | {
+  type: 'h3';
+  segments: InlineSegment[];
+} | { type: 'h4'; segments: InlineSegment[] } | { type: 'h5'; segments: InlineSegment[] } | {
+  type: 'bullet';
+  segments: InlineSegment[];
+} | { type: 'numbered'; number: string; segments: InlineSegment[] } | { type: 'space' } | {
+  type: 'text';
+  segments: InlineSegment[];
+};
+
+function parseInline(text: string): InlineSegment[] {
+  const segments: InlineSegment[] = [];
+  // Regex for inline formatting: bold, italic, inline code, links
+  // Order matters: bold before italic since ** vs *
+  const pattern = /(\*\*(.+?)\*\*|__(.+?)__)|(\*(.+?)\*|_(.+?)_)|(`([^`]+?)`)|(\[([^\]]+?)\]\(([^)]+?)\))/g;
+
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while (match = pattern.exec(text) !== null) {
+    // Add any text before this match
+    if (match.index > lastIndex) {
+      segments.push({ type: 'text', content: text.slice(lastIndex, match.index) });
+    }
+
+    if (match[1]) {
+      // Bold: **text** or __text__
+      segments.push({ type: 'bold', content: match[2] || match[3] });
+    } else if (match[4]) {
+      // Italic: *text* or _text_
+      segments.push({ type: 'italic', content: match[5] || match[6] });
+    } else if (match[7]) {
+      // Inline code: `code`
+      segments.push({ type: 'inlineCode', content: match[8] });
+    } else if (match[9]) {
+      // Link: [text](url)
+      segments.push({ type: 'link', content: match[10], href: match[11] });
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    segments.push({ type: 'text', content: text.slice(lastIndex) });
+  }
+
+  // If nothing matched, return the whole thing as text
+  if (segments.length === 0) {
+    segments.push({ type: 'text', content: text });
+  }
+
+  return segments;
+}
+
+function parseContent(content: string): ContentPart[] {
+  const lines = content.split('\n');
+  const parts: ContentPart[] = [];
+  let inCodeBlock = false;
+  let codeContent = '';
+  let codeLanguage = '';
+
+  for (const line of lines) {
+    if (line.startsWith('```')) {
+      if (inCodeBlock) {
+        parts.push({ type: 'code', content: codeContent, language: codeLanguage });
+        codeContent = '';
+        codeLanguage = '';
+        inCodeBlock = false;
+      } else {
+        inCodeBlock = true;
+        codeLanguage = line.slice(3).trim();
+      }
+    } else if (inCodeBlock) {
+      codeContent += (codeContent ? '\n' : '') + line;
+    } else if (line.startsWith('### ')) {
+      parts.push({ type: 'h5', segments: parseInline(line.slice(4)) });
+    } else if (line.startsWith('## ')) {
+      parts.push({ type: 'h4', segments: parseInline(line.slice(3)) });
+    } else if (line.startsWith('# ')) {
+      parts.push({ type: 'h3', segments: parseInline(line.slice(2)) });
+    } else if (line.startsWith('- ') || line.startsWith('* ')) {
+      parts.push({ type: 'bullet', segments: parseInline(line.slice(2)) });
+    } else if (/^\d+\.\s/.test(line)) {
+      const dotIndex = line.indexOf('.');
+      const num = line.slice(0, dotIndex);
+      const rest = line.slice(dotIndex + 1).trimStart();
+      parts.push({ type: 'numbered', number: num, segments: parseInline(rest) });
+    } else if (line.trim() === '') {
+      parts.push({ type: 'space' });
+    } else {
+      parts.push({ type: 'text', segments: parseInline(line) });
+    }
+  }
+
+  // Handle unclosed code block
+  if (inCodeBlock && codeContent) {
+    parts.push({ type: 'code', content: codeContent, language: codeLanguage });
+  }
+
+  return parts;
+}
+
+export component InlineContent(props: { segments: InlineSegment[] }) {
+  for (const seg of props.segments) {
+    if (seg.type === 'bold') {
+      <strong class="font-semibold text-text-primary">{seg.content}</strong>
+    } else if (seg.type === 'italic') {
+      <em>{seg.content}</em>
+    } else if (seg.type === 'inlineCode') {
+      <code class="px-1.5 py-0.5 bg-bg-base rounded text-[12px] font-mono text-accent-light">
+        {seg.content}
+      </code>
+    } else if (seg.type === 'link') {
+      <a
+        class="text-accent hover:underline cursor-pointer"
+        href={seg.href}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {seg.content}
+      </a>
+    } else {
+      <span>{seg.content}</span>
+    }
+  }
+}
+
+export component CodeBlock(props: { content: string; language: string }) {
+  let copied = track(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(props.content).then(() => {
+      @copied = true;
+      setTimeout(() => {
+        @copied = false;
+      }, 2000);
+    });
+  };
+
+  <div class="my-2 rounded-md overflow-hidden border border-border-default">
+    <div
+      class="flex items-center justify-between px-3 py-1.5 bg-bg-base border-b border-border-default"
+    >
+      <span class="text-[11px] text-text-muted font-mono">{props.language || 'text'}</span>
+      <button
+        class="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors"
+        onClick={handleCopy}
+      >
+        <svg
+          class={{ 'w-3.5 h-3.5': true, hidden: @copied }}
+          viewBox="0 0 16 16"
+          fill="currentColor"
+        >
+          <path
+            d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"
+          />
+          <path
+            d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"
+          />
+        </svg>
+        <svg
+          class={{ 'w-3.5 h-3.5 text-success': true, hidden: !@copied }}
+          viewBox="0 0 16 16"
+          fill="currentColor"
+        >
+          <path
+            d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"
+          />
+        </svg>
+        {@copied ? 'Copied!' : 'Copy'}
+      </button>
+    </div>
+    <pre class="p-3 bg-bg-base font-mono text-xs overflow-x-auto m-0">
+      <code>{props.content}</code>
+    </pre>
+  </div>
+}
+
+export component ChatMessage(props: { message: Message }) {
+  let contentParts = track(() => parseContent(@props.message.content));
+
+  <div class={{ 'flex gap-3': true, 'flex-row-reverse': @props.message.role === 'user' }}>
+    <div
+      class={{
+        'w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-semibold': true,
+        'bg-bg-elevated text-text-primary': @props.message.role === 'user',
+        'bg-accent text-white': @props.message.role !== 'user',
+      }}
+    >
+      <span class={{ hidden: @props.message.role !== 'user' }}>{'U'}</span>
+      <svg
+        class={{ 'w-4 h-4': true, hidden: @props.message.role === 'user' }}
+        viewBox="0 0 16 16"
+        fill="currentColor"
+      >
+        <path
+          d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"
+        />
+      </svg>
+    </div>
+
+    <div
+      class={{
+        'flex-1 min-w-0 max-w-[85%]': true,
+        'flex flex-col items-end': @props.message.role === 'user',
+      }}
+    >
+      <div
+        class={{
+          'px-3.5 py-2.5 rounded-xl text-[13px] leading-relaxed text-text-primary': true,
+          'bg-accent-muted border-transparent': @props.message.role === 'user',
+          'bg-bg-elevated border border-border-default': @props.message.role !== 'user',
+        }}
+      >
+        for (const part of @contentParts; index i) {
+          if (part.type === 'code') {
+            <CodeBlock content={part.content} language={part.language} />
+          } else if (part.type === 'h3') {
+            <h3 class="text-sm font-semibold my-3 text-text-primary">
+              <InlineContent segments={part.segments} />
+            </h3>
+          } else if (part.type === 'h4') {
+            <h4 class="text-[13px] font-semibold my-2.5 text-text-primary">
+              <InlineContent segments={part.segments} />
+            </h4>
+          } else if (part.type === 'h5') {
+            <h4 class="text-[12px] font-semibold my-2 text-text-primary">
+              <InlineContent segments={part.segments} />
+            </h4>
+          } else if (part.type === 'bullet') {
+            <div class="flex gap-2 my-1">
+              <span class="text-accent shrink-0">{'•'}</span>
+              <span>
+                <InlineContent segments={part.segments} />
+              </span>
+            </div>
+          } else if (part.type === 'numbered') {
+            <div class="flex gap-2 my-1">
+              <span class="text-text-muted shrink-0 min-w-[1.25rem] text-right">
+                {part.number}
+                {'.'}
+              </span>
+              <span>
+                <InlineContent segments={part.segments} />
+              </span>
+            </div>
+          } else if (part.type === 'space') {
+            <div class="h-2" />
+          } else {
+            <p class="my-0.5">
+              <InlineContent segments={part.segments} />
+            </p>
+          }
+        }
+      </div>
+
+      <div class="text-[10px] text-text-muted mt-1">
+        {@props.message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+      </div>
+    </div>
+  </div>
+}

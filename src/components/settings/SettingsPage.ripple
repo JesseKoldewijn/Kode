@@ -1,0 +1,102 @@
+import { track, effect } from 'ripple';
+import { GeneralSettings } from './GeneralSettings.ripple';
+import { KeybindingsSettings } from './KeybindingsSettings.ripple';
+import { closeFile } from '../../lib/workspace';
+
+export type SettingsTab = 'general' | 'keybindings';
+
+export component SettingsPage(props: { initialTab?: SettingsTab }) {
+  let activeTab = track<SettingsTab>(props.initialTab ?? 'general');
+
+  const tabs: Array<{ id: SettingsTab; label: string; icon: string }> = [
+    { id: 'general', label: 'General', icon: 'settings' },
+    { id: 'keybindings', label: 'Keyboard Shortcuts', icon: 'keyboard' },
+  ];
+
+  <div class="flex h-full bg-bg-base text-text-primary">
+    <nav class="w-64 shrink-0 border-r border-border-default bg-sidebar-bg">
+      <div class="px-6 py-4 border-b border-border-default">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-semibold text-text-primary">{'Settings'}</h2>
+          <button
+            onClick={() => closeFile('__settings__')}
+            class="p-1.5 rounded-md hover:bg-bg-hover transition-colors duration-150 text-text-muted hover:text-text-primary"
+            aria-label="Close Settings"
+            title="Close Settings (Ctrl+W)"
+          >
+            <svg
+              class="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <ul class="flex flex-col gap-1 px-3 py-4">
+        for (const tab of tabs; key tab.id) {
+          <li>
+            <button
+              class={{
+                'flex items-center gap-3 w-full px-4 py-2.5 text-sm rounded-md transition-colors duration-150 relative': true,
+                'bg-bg-hover text-text-primary font-medium border-l-2 border-accent-primary': @activeTab ===
+                  tab.id,
+                'text-text-muted hover:text-text-primary hover:bg-bg-hover border-l-2 border-transparent': @activeTab !==
+                  tab.id,
+              }}
+              onClick={() => (@activeTab = tab.id)}
+            >
+              if (tab.icon === 'settings') {
+                <svg
+                  class="w-5 h-5 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <circle cx="12" cy="12" r="3" />
+                  <path
+                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                  />
+                </svg>
+              }
+              if (tab.icon === 'keyboard') {
+                <svg
+                  class="w-5 h-5 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <rect x="2" y="4" width="20" height="16" rx="2" ry="2" />
+                  <path d="M6 8h.001" />
+                  <path d="M10 8h.001" />
+                  <path d="M14 8h.001" />
+                  <path d="M18 8h.001" />
+                  <path d="M8 12h.001" />
+                  <path d="M12 12h.001" />
+                  <path d="M16 12h.001" />
+                  <path d="M7 16h10" />
+                </svg>
+              }
+              <span>{tab.label}</span>
+            </button>
+          </li>
+        }
+      </ul>
+    </nav>
+
+    <main class="flex-1 min-w-0 overflow-auto p-8">
+      if (@activeTab === 'general') {
+        <GeneralSettings />
+      } else if (@activeTab === 'keybindings') {
+        <KeybindingsSettings />
+      }
+    </main>
+  </div>
+}

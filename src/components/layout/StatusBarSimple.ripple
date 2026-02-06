@@ -1,0 +1,19 @@
+import { track } from 'ripple';
+
+export component StatusBarSimple() {
+  let text = track('Hello');
+  let workspacePath = track<string | null>(null);
+
+  // Computed track
+  const workspaceName = track(() => {
+    const path = @workspacePath;
+    if (!path) return 'No Workspace';
+    return path.split('/').pop() || path;
+  });
+
+  <div class="bg-blue-600 text-white p-2">
+    {@text}
+    {' | '}
+    {@workspaceName}
+  </div>
+}

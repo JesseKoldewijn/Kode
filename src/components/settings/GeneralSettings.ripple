@@ -1,0 +1,401 @@
+import { track, effect } from 'ripple';
+import {
+  subscribe as subscribeToTheme,
+  setTheme,
+  getTheme,
+  type ThemeMode,
+  type ThemeConfig,
+} from '../../lib/theme';
+import {
+  subscribeToZoom,
+  setFontSize,
+  currentFontSize,
+  MIN_FONT_SIZE,
+  MAX_FONT_SIZE,
+} from '../../lib/zoom';
+import {
+  subscribeToEditorSettings,
+  setTabSize,
+  setWordWrap,
+  setAutoSave,
+  setAutoSaveDelay,
+  type EditorSettings,
+} from '../../lib/editor-settings';
+import {
+  subscribeToAgentSettings,
+  setAgentPreset,
+  setAgentCommand,
+  setAgentArgs,
+  AGENT_PRESETS,
+  type AgentSettings,
+  type AgentPreset,
+} from '../../lib/agent-settings';
+
+export component GeneralSettings() {
+  let themeMode = track<ThemeMode>('system');
+  let resolvedTheme = track<'light' | 'dark'>('dark');
+  let fontSize = track(13);
+  let tabSize = track<2 | 4>(2);
+  let wordWrap = track(false);
+  let autoSave = track(false);
+  let autoSaveDelay = track(1000);
+  let agentPreset = track<AgentPreset>('opencode');
+  let agentCommand = track('opencode');
+  let agentArgs = track('');
+
+  // Subscribe to theme changes
+  effect(() => {
+    const unsubscribe = subscribeToTheme((config: ThemeConfig) => {
+      @themeMode = config.mode;
+      @resolvedTheme = config.resolvedTheme;
+    });
+
+    return unsubscribe;
+  });
+
+  // Subscribe to zoom/font size changes
+  effect(() => {
+    const unsubscribe = subscribeToZoom((size: number) => {
+      @fontSize = size;
+    });
+
+    return unsubscribe;
+  });
+
+  // Subscribe to editor settings changes
+  effect(() => {
+    const unsubscribe = subscribeToEditorSettings((settings: EditorSettings) => {
+      @tabSize = settings.tabSize;
+      @wordWrap = settings.wordWrap;
+      @autoSave = settings.autoSave;
+      @autoSaveDelay = settings.autoSaveDelay;
+    });
+
+    return unsubscribe;
+  });
+
+  // Subscribe to agent settings changes
+  effect(() => {
+    const unsubscribe = subscribeToAgentSettings((settings: AgentSettings) => {
+      @agentPreset = settings.preset;
+      @agentCommand = settings.command;
+      @agentArgs = settings.args.join(', ');
+    });
+
+    return unsubscribe;
+  });
+
+  const handleThemeChange = (mode: ThemeMode) => {
+    setTheme(mode);
+  };
+
+  const handleFontSizeChange = (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    const value = parseInt(target.value, 10);
+    if (!isNaN(value)) {
+      setFontSize(value);
+    }
+  };
+
+  const handleTabSizeChange = (e: Event) => {
+    const target = e.target as HTMLSelectElement;
+    const value = parseInt(target.value, 10);
+    if (value === 2 || value === 4) {
+      setTabSize(value);
+    }
+  };
+
+  const handleWordWrapToggle = () => {
+    setWordWrap(!@wordWrap);
+  };
+
+  const themeOptions: Array<{ value: ThemeMode; label: string; description: string }> = [
+    { value: 'system', label: 'System', description: 'Follow your operating system setting' },
+    { value: 'light', label: 'Light', description: 'Always use light theme' },
+    { value: 'dark', label: 'Dark', description: 'Always use dark theme' },
+  ];
+
+  <div class="max-w-2xl">
+    <header class="mb-6">
+      <h1 class="text-xl font-semibold text-text-primary mb-2">{'General Settings'}</h1>
+      <p class="text-sm text-text-muted">{'Configure general application preferences.'}</p>
+    </header>
+
+    <section class="mb-8">
+      <h2 class="text-sm font-semibold text-text-secondary mb-4 uppercase tracking-wide">
+        {'Appearance'}
+      </h2>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-text-primary mb-2">{'Theme'}</label>
+          <div class="flex gap-3">
+            for (const option of themeOptions) {
+              <button
+                class={{
+                  'flex-1 flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-colors duration-150 cursor-pointer': true,
+                  'border-accent bg-accent/10': @themeMode === option.value,
+                  'border-border-default hover:border-border-hover bg-bg-surface': @themeMode !==
+                    option.value,
+                }}
+                onClick={() => handleThemeChange(option.value)}
+              >
+                <div
+                  class={{
+                    'w-12 h-8 rounded border flex items-center justify-center': true,
+                    'bg-bg-elevated border-border-emphasis': option.value === 'light',
+                    'bg-bg-surface border-border-default': option.value === 'dark',
+                    'bg-gradient-to-r from-bg-elevated to-bg-surface border-border-default': option.value ===
+                      'system',
+                  }}
+                >
+                  if (option.value === 'light') {
+                    <svg class="w-5 h-5 text-warning" viewBox="0 0 24 24" fill="currentColor">
+                      <path
+                        d="M12 2.25a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.894 6.166a.75.75 0 00-1.06-1.06l-1.591 1.59a.75.75 0 101.06 1.061l1.591-1.59zM21.75 12a.75.75 0 01-.75.75h-2.25a.75.75 0 010-1.5H21a.75.75 0 01.75.75zM17.834 18.894a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 10-1.061 1.06l1.59 1.591zM12 18a.75.75 0 01.75.75V21a.75.75 0 01-1.5 0v-2.25A.75.75 0 0112 18zM7.758 17.303a.75.75 0 00-1.061-1.06l-1.591 1.59a.75.75 0 001.06 1.061l1.591-1.59zM6 12a.75.75 0 01-.75.75H3a.75.75 0 010-1.5h2.25A.75.75 0 016 12zM6.697 7.757a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 00-1.061 1.06l1.59 1.591z"
+                      />
+                    </svg>
+                  }
+                  if (option.value === 'dark') {
+                    <svg class="w-5 h-5 text-info" viewBox="0 0 24 24" fill="currentColor">
+                      <path
+                        fill-rule="evenodd"
+                        d="M9.528 1.718a.75.75 0 01.162.819A8.97 8.97 0 009 6a9 9 0 009 9 8.97 8.97 0 003.463-.69.75.75 0 01.981.98 10.503 10.503 0 01-9.694 6.46c-5.799 0-10.5-4.701-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 01.818.162z"
+                        clip-rule="evenodd"
+                      />
+                    </svg>
+                  }
+                  if (option.value === 'system') {
+                    <svg class="w-5 h-5 text-text-muted" viewBox="0 0 24 24" fill="currentColor">
+                      <path
+                        d="M4 6a2 2 0 012-2h12a2 2 0 012 2v7a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm6 10a1 1 0 00-1 1v1h6v-1a1 1 0 00-1-1h-4z"
+                      />
+                    </svg>
+                  }
+                </div>
+                <span class="text-sm font-medium text-text-primary">{option.label}</span>
+                <span class="text-xs text-text-muted text-center">{option.description}</span>
+              </button>
+            }
+          </div>
+          <p class="mt-2 text-xs text-text-muted">
+            {'Current: '}
+            {@resolvedTheme === 'dark' ? 'Dark' : 'Light'}
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="mb-8">
+      <h2 class="text-sm font-semibold text-text-secondary mb-4 uppercase tracking-wide">
+        {'Editor'}
+      </h2>
+
+      <div class="space-y-4">
+        <div
+          class="flex items-center justify-between p-3 bg-bg-surface rounded-lg border border-border-default"
+        >
+          <div>
+            <div class="text-sm font-medium text-text-primary">{'Font Size'}</div>
+            <div class="text-xs text-text-muted">
+              {'Editor font size in pixels ('}
+              {MIN_FONT_SIZE}
+              {'–'}
+              {MAX_FONT_SIZE}
+              {')'}
+            </div>
+          </div>
+          <input
+            type="number"
+            min={String(MIN_FONT_SIZE)}
+            max={String(MAX_FONT_SIZE)}
+            value={String(@fontSize)}
+            onInput={handleFontSizeChange}
+            class="w-16 px-2 py-1 text-sm bg-bg-elevated border border-border-default rounded text-text-primary text-center outline-none focus:border-accent"
+          />
+        </div>
+
+        <div
+          class="flex items-center justify-between p-3 bg-bg-surface rounded-lg border border-border-default"
+        >
+          <div>
+            <div class="text-sm font-medium text-text-primary">{'Tab Size'}</div>
+            <div class="text-xs text-text-muted">{'Number of spaces per tab'}</div>
+          </div>
+          <select
+            class="px-2 py-1 text-sm bg-bg-elevated border border-border-default rounded text-text-primary outline-none focus:border-accent"
+            value={String(@tabSize)}
+            onInput={handleTabSizeChange}
+          >
+            <option value="2" selected={@tabSize === 2}>{'2'}</option>
+            <option value="4" selected={@tabSize === 4}>{'4'}</option>
+          </select>
+        </div>
+
+        <div
+          class="flex items-center justify-between p-3 bg-bg-surface rounded-lg border border-border-default"
+        >
+          <div>
+            <div class="text-sm font-medium text-text-primary">{'Word Wrap'}</div>
+            <div class="text-xs text-text-muted">{'Wrap long lines in the editor'}</div>
+          </div>
+          <button
+            class={{
+              'relative w-10 h-6 rounded-full transition-colors duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2': true,
+              'bg-accent': @wordWrap,
+              'bg-bg-muted': !@wordWrap,
+            }}
+            onClick={handleWordWrapToggle}
+          >
+            <span
+              class={{
+                'absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200': true,
+                'translate-x-4': @wordWrap,
+                'translate-x-0': !@wordWrap,
+              }}
+            />
+          </button>
+        </div>
+
+        <div
+          class="flex items-center justify-between p-3 bg-bg-surface rounded-lg border border-border-default"
+        >
+          <div>
+            <div class="text-sm font-medium text-text-primary">{'Auto Save'}</div>
+            <div class="text-xs text-text-muted">{'Automatically save files after a delay'}</div>
+          </div>
+          <button
+            class={{
+              'relative w-10 h-6 rounded-full transition-colors duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2': true,
+              'bg-accent': @autoSave,
+              'bg-bg-muted': !@autoSave,
+            }}
+            onClick={() => setAutoSave(!@autoSave)}
+          >
+            <span
+              class={{
+                'absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200': true,
+                'translate-x-4': @autoSave,
+                'translate-x-0': !@autoSave,
+              }}
+            />
+          </button>
+        </div>
+
+        <div
+          class={{
+            'flex items-center justify-between p-3 bg-bg-surface rounded-lg border border-border-default': true,
+            'opacity-50 pointer-events-none': !@autoSave,
+          }}
+        >
+          <div>
+            <div class="text-sm font-medium text-text-primary">{'Auto Save Delay'}</div>
+            <div class="text-xs text-text-muted">{'Delay in milliseconds (500–30000)'}</div>
+          </div>
+          <input
+            type="number"
+            min="500"
+            max="30000"
+            step="500"
+            value={String(@autoSaveDelay)}
+            onInput={(e: Event) => {
+              const val = parseInt((e.target as HTMLInputElement).value, 10);
+              if (!isNaN(val)) setAutoSaveDelay(val);
+            }}
+            class="w-20 px-2 py-1 text-sm bg-bg-elevated border border-border-default rounded text-text-primary text-center outline-none focus:border-accent"
+          />
+        </div>
+      </div>
+    </section>
+
+    <section class="mb-8">
+      <h2 class="text-sm font-semibold text-text-secondary mb-4 uppercase tracking-wide">
+        {'AI Agent'}
+      </h2>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-text-primary mb-2">{'Agent Preset'}</label>
+          <div class="grid grid-cols-2 gap-2">
+            for (const key of Object.keys(AGENT_PRESETS) as AgentPreset[]) {
+              <button
+                class={{
+                  'flex flex-col items-start p-3 rounded-lg border-2 transition-colors duration-150 cursor-pointer text-left': true,
+                  'border-accent bg-accent/10': @agentPreset === key,
+                  'border-border-default hover:border-border-hover bg-bg-surface': @agentPreset !==
+                    key,
+                }}
+                onClick={() => setAgentPreset(key)}
+              >
+                <span class="text-sm font-medium text-text-primary">
+                  {AGENT_PRESETS[key].label}
+                </span>
+                <span class="text-xs text-text-muted">{AGENT_PRESETS[key].description}</span>
+              </button>
+            }
+          </div>
+        </div>
+
+        <div
+          class="flex items-center justify-between p-3 bg-bg-surface rounded-lg border border-border-default"
+        >
+          <div>
+            <div class="text-sm font-medium text-text-primary">{'Command'}</div>
+            <div class="text-xs text-text-muted">{'The CLI command to run'}</div>
+          </div>
+          <input
+            type="text"
+            value={@agentCommand}
+            onInput={(e: Event) => {
+              const val = (e.target as HTMLInputElement).value;
+              setAgentCommand(val);
+            }}
+            placeholder="e.g. opencode"
+            class="w-40 px-2 py-1 text-sm bg-bg-elevated border border-border-default rounded text-text-primary outline-none focus:border-accent"
+          />
+        </div>
+
+        <div
+          class="flex items-center justify-between p-3 bg-bg-surface rounded-lg border border-border-default"
+        >
+          <div>
+            <div class="text-sm font-medium text-text-primary">{'Arguments'}</div>
+            <div class="text-xs text-text-muted">{'Comma-separated CLI arguments'}</div>
+          </div>
+          <input
+            type="text"
+            value={@agentArgs}
+            onInput={(e: Event) => {
+              const val = (e.target as HTMLInputElement).value;
+              setAgentArgs(val);
+            }}
+            placeholder="e.g. --no-auto-commits"
+            class="w-40 px-2 py-1 text-sm bg-bg-elevated border border-border-default rounded text-text-primary outline-none focus:border-accent"
+          />
+        </div>
+      </div>
+    </section>
+
+    <section class="mb-8">
+      <h2 class="text-sm font-semibold text-text-secondary mb-4 uppercase tracking-wide">
+        {'About'}
+      </h2>
+
+      <div class="p-4 bg-bg-surface rounded-lg border border-border-default">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center">
+            <span class="text-accent font-bold text-lg">{'J'}</span>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-text-primary">{'Kode'}</h3>
+            <p class="text-xs text-text-muted">{'Version 0.1.0'}</p>
+          </div>
+        </div>
+        <p class="text-xs text-text-muted">
+          {'A performant, open-source desktop code editor with integrated AI chat support.'}
+        </p>
+        <p class="text-xs text-text-muted mt-2">{'Built with Tauri + Ripple'}</p>
+      </div>
+    </section>
+  </div>
+}

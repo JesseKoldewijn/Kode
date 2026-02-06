@@ -1,0 +1,192 @@
+import { track, effect } from 'ripple';
+import { terminal, type TerminalOutput, xtermLoader } from '../../lib/tauri';
+import { workspacePath } from '../../lib/workspace';
+import { subscribe, resolvedTheme } from '../../lib/theme';
+
+// Module-level registry: maps sessionId -> xterm instance for external actions
+const terminalInstances = new Map<string, any>();
+
+/**
+ * Clear a terminal's screen by session ID.
+ */
+export function clearTerminal(sessionId: string): void {
+  const t = terminalInstances.get(sessionId);
+  if (t) {
+    t.clear();
+  }
+}
+
+export component Terminal(props: { sessionId: string }) {
+  // Extract sessionId from props - handle both string and tracked values
+  const id =
+    typeof props.sessionId === 'string' ? props.sessionId : String(props.sessionId);
+  let terminalContainer = track<HTMLElement | null>(null);
+  let term = track<any>(null);
+  let fitAddon = track<any>(null);
+  let isConnected = track(false);
+  let unlistenOutput = track<(() => void) | null>(null);
+
+  const containerRef = (el: HTMLElement) => {
+    @terminalContainer = el;
+    return () => {
+      @terminalContainer = null;
+    };
+  };
+
+  const getTerminalTheme = (isDark: boolean) => ({
+    background: isDark ? '#0d0d0d' : '#1e1e1e',
+    foreground: isDark ? '#cccccc' : '#d4d4d4',
+    cursor: isDark ? '#cccccc' : '#d4d4d4',
+    cursorAccent: isDark ? '#0d0d0d' : '#1e1e1e',
+    selectionBackground: '#264f78',
+    black: '#000000',
+    red: '#f14c4c',
+    green: '#4ec9b0',
+    yellow: '#dcdcaa',
+    blue: '#569cd6',
+    magenta: '#c586c0',
+    cyan: '#4fc1ff',
+    white: '#d4d4d4',
+    brightBlack: '#8a8a8a',
+    brightRed: '#f14c4c',
+    brightGreen: '#4ec9b0',
+    brightYellow: '#dcdcaa',
+    brightBlue: '#569cd6',
+    brightMagenta: '#c586c0',
+    brightCyan: '#4fc1ff',
+    brightWhite: '#ffffff',
+  });
+
+  // Initialize xterm and connect to PTY backend
+  effect(() => {
+    const container = @terminalContainer;
+    if (!container) return;
+
+    xtermLoader.loadXterm().then(async (xterm) => {
+      if (!xterm) return; // xterm unavailable (tests, etc.)
+
+      const { Terminal, FitAddon, WebLinksAddon } = xterm;
+      const isDark = resolvedTheme === 'dark';
+
+      const t = new Terminal({
+        theme: getTerminalTheme(isDark),
+        fontFamily: 'JetBrains Mono, Fira Code, Cascadia Code, Consolas, monospace',
+        fontSize: 13,
+        lineHeight: 1.2,
+        cursorBlink: true,
+        cursorStyle: 'bar',
+        scrollback: 10000,
+      });
+
+      const fit = new FitAddon();
+      const webLinksAddon = new WebLinksAddon();
+
+      t.loadAddon(fit);
+      t.loadAddon(webLinksAddon);
+      t.open(container);
+      fit.fit();
+
+      @term = t;
+      @fitAddon = fit;
+
+      // Register in module-level registry for external clear calls
+      terminalInstances.set(id, t);
+
+      const unsubscribeTheme = subscribe(() => {
+        const newIsDark = resolvedTheme === 'dark';
+        if (@term) {
+          @term.options.theme = getTerminalTheme(newIsDark);
+        }
+      });
+
+      const unlisten = await terminal.onOutput((output: TerminalOutput) => {
+        if (output.id === id && @term) {
+          @term.write(output.data);
+        }
+      });
+      @unlistenOutput = unlisten;
+
+      try {
+        const cwd = workspacePath || undefined;
+        await terminal.spawn(id, undefined, cwd);
+        @isConnected = true;
+
+        t.onData((data: string) => {
+          if (@isConnected) {
+            terminal.write(id, data);
+          }
+        });
+
+        t.onResize(({ cols, rows }) => {
+          if (@isConnected) {
+            terminal.resize(id, rows, cols);
+          }
+        });
+      } catch (error) {
+        console.error('Failed to spawn terminal:', error);
+        writeDemoWelcome(t);
+        setupDemoMode(t);
+      }
+
+      const resizeObserver = new ResizeObserver(() => {
+        if (@fitAddon) {
+          @fitAddon.fit();
+        }
+      });
+      resizeObserver.observe(container);
+
+      return () => {
+        resizeObserver.disconnect();
+        unsubscribeTheme();
+      };
+    });
+
+    return () => {
+      terminalInstances.delete(id);
+      if (@isConnected) {
+        terminal.close(id);
+      }
+      if (@unlistenOutput) {
+        @unlistenOutput();
+      }
+      if (@term) {
+        @term.dispose();
+        @term = null;
+      }
+    };
+  });
+
+  const writeDemoWelcome = (t: any) => {
+    t.writeln('[1;36m╭──────────────────────────────────────────╮[0m');
+    t.writeln('[1;36m│[0m  [1;33mKode Terminal[0m                       [1;36m│[0m');
+    t.writeln('[1;36m│[0m  [33mDemo Mode - Tauri not connected[0m        [1;36m│[0m');
+    t.writeln('[1;36m╰──────────────────────────────────────────╯[0m');
+    t.writeln('');
+    t.write('[1;32m❯[0m ');
+  };
+
+  const setupDemoMode = (t: any) => {
+    let currentLine = '';
+    t.onData((data: string) => {
+      if (data === '\r') {
+        t.writeln('');
+        if (currentLine.trim()) {
+          t.writeln(`\x1b[90mCommand: ${currentLine}\x1b[0m`);
+          t.writeln('[33m⚠ Terminal not connected to backend[0m');
+        }
+        currentLine = '';
+        t.write('[1;32m❯[0m ');
+      } else if (data === '') {
+        if (currentLine.length > 0) {
+          currentLine = currentLine.slice(0, -1);
+          t.write(' ');
+        }
+      } else if (data >= ' ') {
+        currentLine += data;
+        t.write(data);
+      }
+    });
+  };
+
+  <div class="h-full w-full p-2 bg-terminal-bg" {ref containerRef} />
+}

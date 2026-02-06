@@ -1,0 +1,198 @@
+import { track, effect } from 'ripple';
+import type { FileTreeNode } from '../../lib/workspace';
+
+export type ContextMenuAction = 'newFile' | 'newFolder' | 'rename' | 'delete' | 'copyPath' | 'copyRelativePath' | 'revealInFileManager';
+
+export interface ContextMenuState {
+  isOpen: boolean;
+  x: number;
+  y: number;
+  node: FileTreeNode | null;
+}
+
+export component ContextMenu(props: {
+  state: ContextMenuState;
+  workspacePath: string | null;
+  onAction: (action: ContextMenuAction, node: FileTreeNode) => void;
+  onClose: () => void;
+}) {
+  let menuRef = track<HTMLDivElement | null>(null);
+
+  // Close on click outside or Escape
+  effect(() => {
+    if (!@props.state.isOpen) return;
+
+    const handleClick = (e: MouseEvent) => {
+      if (@menuRef && !@menuRef.contains(e.target as Node)) {
+        props.onClose();
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        props.onClose();
+      }
+    };
+
+    // Defer to avoid catching the contextmenu click itself
+    requestAnimationFrame(() => {
+      window.addEventListener('click', handleClick);
+      window.addEventListener('contextmenu', handleClick);
+    });
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('click', handleClick);
+      window.removeEventListener('contextmenu', handleClick);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  });
+
+  // Reposition menu if it would overflow viewport
+  effect(() => {
+    if (!@props.state.isOpen || !@menuRef) return;
+    const menu = @menuRef;
+    const rect = menu.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    if (rect.right > vw) {
+      menu.style.left = `${@props.state.x - rect.width}px`;
+    }
+    if (rect.bottom > vh) {
+      menu.style.top = `${@props.state.y - rect.height}px`;
+    }
+  });
+
+  const handleAction = (action: ContextMenuAction) => {
+    if (@props.state.node) {
+      props.onAction(action, @props.state.node);
+    }
+    props.onClose();
+  };
+
+  const getRelativePath = (): string => {
+    if (!@props.state.node || !@props.workspacePath) return '';
+    const nodePath = @props.state.node.path;
+    if (nodePath.startsWith(@props.workspacePath + '/')) {
+      return nodePath.slice(@props.workspacePath.length + 1);
+    }
+    if (nodePath.startsWith(@props.workspacePath + '\\')) {
+      return nodePath.slice(@props.workspacePath.length + 1);
+    }
+    return nodePath;
+  };
+
+  const isDirectory = @props.state.node?.isDirectory ?? false;
+
+  <div
+    data-testid="filetree-context-menu"
+    class={{
+      'fixed z-[2000] min-w-[180px] py-1 bg-bg-surface border border-border-default rounded-md shadow-xl': true,
+      hidden: !@props.state.isOpen,
+    }}
+    style={{ left: `${@props.state.x}px`, top: `${@props.state.y}px` }}
+    ref={(el: HTMLDivElement) => {
+      @menuRef = el;
+      return () => {
+        @menuRef = null;
+      };
+    }}
+  >
+    <button
+      data-testid="filetree-context-action:newFile"
+      class="w-full px-3 py-1.5 text-left text-[13px] text-text-primary bg-transparent border-none cursor-pointer hover:bg-bg-hover transition-colors flex items-center gap-2"
+      onClick={() => handleAction('newFile')}
+    >
+      <svg class="w-4 h-4 text-text-muted shrink-0" fill="currentColor" viewBox="0 0 24 24">
+        <path
+          d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 14h-3v3h-2v-3H8v-2h3v-3h2v3h3v2zm-3-7V3.5L18.5 9H13z"
+        />
+      </svg>
+      <span>{'New File'}</span>
+    </button>
+
+    <button
+      data-testid="filetree-context-action:newFolder"
+      class="w-full px-3 py-1.5 text-left text-[13px] text-text-primary bg-transparent border-none cursor-pointer hover:bg-bg-hover transition-colors flex items-center gap-2"
+      onClick={() => handleAction('newFolder')}
+    >
+      <svg class="w-4 h-4 text-text-muted shrink-0" fill="currentColor" viewBox="0 0 24 24">
+        <path
+          d="M20 6h-8l-2-2H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-1 8h-3v3h-2v-3h-3v-2h3V9h2v3h3v2z"
+        />
+      </svg>
+      <span>{'New Folder'}</span>
+    </button>
+
+    <div class="h-px bg-border-default mx-2 my-1" />
+
+    <button
+      data-testid="filetree-context-action:rename"
+      class="w-full px-3 py-1.5 text-left text-[13px] text-text-primary bg-transparent border-none cursor-pointer hover:bg-bg-hover transition-colors flex items-center gap-2"
+      onClick={() => handleAction('rename')}
+    >
+      <svg class="w-4 h-4 text-text-muted shrink-0" fill="currentColor" viewBox="0 0 24 24">
+        <path
+          d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+        />
+      </svg>
+      <span>{'Rename'}</span>
+    </button>
+
+    <button
+      data-testid="filetree-context-action:delete"
+      class="w-full px-3 py-1.5 text-left text-[13px] text-error bg-transparent border-none cursor-pointer hover:bg-bg-hover transition-colors flex items-center gap-2"
+      onClick={() => handleAction('delete')}
+    >
+      <svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+      </svg>
+      <span>{'Delete'}</span>
+    </button>
+
+    <div class="h-px bg-border-default mx-2 my-1" />
+
+    <button
+      data-testid="filetree-context-action:copyPath"
+      class="w-full px-3 py-1.5 text-left text-[13px] text-text-primary bg-transparent border-none cursor-pointer hover:bg-bg-hover transition-colors flex items-center gap-2"
+      onClick={() => handleAction('copyPath')}
+    >
+      <svg class="w-4 h-4 text-text-muted shrink-0" fill="currentColor" viewBox="0 0 24 24">
+        <path
+          d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
+        />
+      </svg>
+      <span>{'Copy Path'}</span>
+    </button>
+
+    <button
+      data-testid="filetree-context-action:copyRelativePath"
+      class="w-full px-3 py-1.5 text-left text-[13px] text-text-primary bg-transparent border-none cursor-pointer hover:bg-bg-hover transition-colors flex items-center gap-2"
+      onClick={() => handleAction('copyRelativePath')}
+    >
+      <svg class="w-4 h-4 text-text-muted shrink-0" fill="currentColor" viewBox="0 0 24 24">
+        <path
+          d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
+        />
+      </svg>
+      <span>{'Copy Relative Path'}</span>
+    </button>
+
+    <div class="h-px bg-border-default mx-2 my-1" />
+
+    <button
+      data-testid="filetree-context-action:revealInFileManager"
+      class="w-full px-3 py-1.5 text-left text-[13px] text-text-primary bg-transparent border-none cursor-pointer hover:bg-bg-hover transition-colors flex items-center gap-2"
+      onClick={() => handleAction('revealInFileManager')}
+    >
+      <svg class="w-4 h-4 text-text-muted shrink-0" fill="currentColor" viewBox="0 0 24 24">
+        <path
+          d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"
+        />
+      </svg>
+      <span>{'Reveal in File Manager'}</span>
+    </button>
+  </div>
+}

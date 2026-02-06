@@ -1,0 +1,84 @@
+import { track, type Tracked } from 'ripple';
+
+export component ChatInput(props: {
+  inputValue: string;
+  isLoading: boolean;
+  onInput: (val: string) => void;
+  sendMessage: () => void;
+  onTextareaRef?: (el: HTMLTextAreaElement | null) => void;
+}) {
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      props.sendMessage();
+    }
+  };
+
+  const handleInput = (e: InputEvent) => {
+    const target = e.target as HTMLTextAreaElement;
+    props.onInput(target.value);
+    target.style.height = 'auto';
+    target.style.height = Math.min(target.scrollHeight, 150) + 'px';
+  };
+
+  <div class="px-4 pb-4 pt-3 border-t border-border-default bg-bg-surface">
+    <div class="flex gap-2 items-end">
+      <textarea
+        class="w-full bg-bg-elevated border border-border-default rounded-lg px-3 py-2 text-[13px] text-text-primary outline-none transition-all duration-150 focus:border-accent resize-none placeholder:text-text-muted"
+        rows="1"
+        placeholder="Ask anything..."
+        value={@props.inputValue}
+        onInput={handleInput}
+        onKeyDown={handleKeyDown}
+        ref={(el: HTMLTextAreaElement) => {
+          if (el && props.onTextareaRef) {
+            props.onTextareaRef(el);
+            // Auto-resize
+            el.style.height = 'auto';
+            el.style.height = `${el.scrollHeight}px`;
+          }
+          return () => props.onTextareaRef?.(null);
+        }}
+      />
+      <button
+        class={{
+          'relative flex items-center justify-center w-7 h-7 rounded-md border-none cursor-pointer transition-all duration-150 shrink-0 mb-0.5': true,
+          'bg-accent text-white hover:bg-accent-hover': @props.inputValue.trim() &&
+            !@props.isLoading,
+          'bg-bg-muted text-text-muted cursor-not-allowed': !@props.inputValue.trim() ||
+            @props.isLoading,
+        }}
+        disabled={!@props.inputValue.trim() || @props.isLoading}
+        onClick={() => props.sendMessage()}
+      >
+        <svg
+          class={{ 'w-4 h-4 animate-spin': true, hidden: !@props.isLoading }}
+          viewBox="0 0 16 16"
+          fill="none"
+        >
+          <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="2" opacity="0.25" />
+          <path
+            d="M14 8a6 6 0 0 0-6-6"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+        </svg>
+        <svg
+          class={{ 'w-4 h-4': true, hidden: @props.isLoading }}
+          viewBox="0 0 16 16"
+          fill="currentColor"
+        >
+          <path
+            d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576 6.636 10.07Zm6.787-8.201L1.591 6.602l4.339 2.76 7.494-7.493Z"
+          />
+        </svg>
+      </button>
+    </div>
+
+    <div class="flex justify-between mt-2 text-[10px] text-text-muted">
+      <span>{'Enter to send'}</span>
+      <span>{'Shift+Enter for newline'}</span>
+    </div>
+  </div>
+}

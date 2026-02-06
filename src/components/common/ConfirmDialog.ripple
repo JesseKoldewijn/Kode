@@ -1,0 +1,142 @@
+import { track, effect, trackSplit } from 'ripple';
+
+export type ConfirmDialogResult = 'save' | 'dont-save' | 'cancel';
+
+export interface ConfirmDialogProps {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  fileName?: string;
+  showSaveButton?: boolean;
+  onResult: (result: ConfirmDialogResult) => void;
+}
+
+export component ConfirmDialog(props: ConfirmDialogProps) {
+  const [isOpen, rest] = trackSplit(props, ['isOpen']);
+  const { title, message, fileName, showSaveButton = true, onResult } = @rest;
+
+  let dialogRef = track<HTMLDivElement | null>(null);
+
+  // Focus trap and escape key handling
+  effect(() => {
+    if (!@isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onResult('cancel');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  });
+
+  // Auto-focus the dialog when opened
+  effect(() => {
+    if (@isOpen && @dialogRef) {
+      @dialogRef.focus();
+    }
+  });
+
+  const handleBackdropClick = (e: MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      onResult('cancel');
+    }
+  };
+
+  <div
+    data-testid="confirm-dialog"
+    class={{
+      'fixed inset-0 z-[1000] flex items-center justify-center': true,
+      hidden: !@isOpen,
+    }}
+    onClick={handleBackdropClick}
+  >
+    <div class="absolute inset-0 bg-black/60" />
+
+    <div
+      class="relative bg-bg-surface border border-border-default rounded-lg shadow-xl max-w-[400px] w-full mx-4 animate-fadeIn"
+      ref={(el: HTMLDivElement) => {
+        @dialogRef = el;
+        return () => {
+          @dialogRef = null;
+        };
+      }}
+      tabindex="-1"
+    >
+      <header class="px-5 pt-5 pb-2">
+        <h2 class="text-base font-semibold text-text-primary m-0">{title}</h2>
+      </header>
+
+      <div class="px-5 pb-4">
+        <p class="text-sm text-text-secondary m-0 leading-relaxed">{message}</p>
+        <p class={{ 'text-sm text-text-primary m-0 mt-2 font-medium': true, hidden: !fileName }}>
+          {fileName || ''}
+        </p>
+      </div>
+
+      <footer
+        class="flex items-center justify-end gap-2 px-5 py-4 border-t border-border-default bg-bg-elevated/50 rounded-b-lg"
+      >
+        <button
+          data-testid="confirm-dialog-cancel"
+          class="px-4 py-2 text-sm font-medium text-text-secondary bg-transparent border border-border-default rounded-md hover:bg-bg-hover hover:text-text-primary transition-colors"
+          onClick={() => onResult('cancel')}
+        >
+          {'Cancel'}
+        </button>
+
+        <button
+          data-testid="confirm-dialog-secondary"
+          class={{
+            'px-4 py-2 text-sm font-medium text-text-primary bg-transparent border border-border-default rounded-md hover:bg-bg-hover transition-colors': true,
+            hidden: !showSaveButton,
+          }}
+          onClick={() => onResult('dont-save')}
+        >
+          {'Don\'t Save'}
+        </button>
+
+        <button
+          data-testid="confirm-dialog-primary"
+          class={{
+            'px-4 py-2 text-sm font-medium text-white bg-accent rounded-md hover:bg-accent/90 transition-colors': true,
+            hidden: !showSaveButton,
+          }}
+          onClick={() => onResult('save')}
+        >
+          {'Save'}
+        </button>
+
+        <button
+          data-testid="confirm-dialog-primary"
+          class={{
+            'px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors': true,
+            hidden: showSaveButton,
+          }}
+          onClick={() => onResult('dont-save')}
+        >
+          {'Delete'}
+        </button>
+      </footer>
+    </div>
+  </div>
+
+  <style>
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: scale(0.95);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    .animate-fadeIn {
+      animation: fadeIn 0.15s ease-out;
+    }
+  </style>
+}
