@@ -1,7 +1,8 @@
 // Kode - Tauri Application
 // A Cursor-like code editor with AI chat support
 
-mod commands;
+pub mod commands;
+pub mod editor;
 
 use tauri::{
     menu::{Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder},
@@ -167,13 +168,6 @@ pub fn run() {
 
             app.set_menu(menu)?;
 
-            // Enable devtools in debug mode
-            #[cfg(debug_assertions)]
-            {
-                let window = app.get_webview_window("main").unwrap();
-                window.open_devtools();
-            }
-
             // Initialize logging
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -181,6 +175,17 @@ pub fn run() {
                         .level(log::LevelFilter::Debug)
                         .build(),
                 )?;
+            }
+
+            // Get the main window for devtools
+            #[cfg(debug_assertions)]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    log::info!("Opening devtools (debug mode)...");
+                    window.open_devtools();
+                } else {
+                    log::warn!("Could not get main window for devtools");
+                }
             }
 
             log::info!("Kode started successfully");
@@ -214,6 +219,16 @@ pub fn run() {
             commands::watcher::stop_watcher,
             commands::git::get_git_branch,
             commands::git::get_git_status,
+            commands::editor::test_simple_command,
+            commands::editor::open_buffer,
+            commands::editor::close_buffer,
+            commands::editor::get_highlights,
+            commands::editor::edit_buffer,
+            commands::editor::set_selections,
+            commands::editor::get_selections,
+            commands::editor::undo_buffer,
+            commands::editor::redo_buffer,
+            commands::editor::get_history_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Kode");

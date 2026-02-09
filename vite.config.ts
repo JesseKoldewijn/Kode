@@ -57,10 +57,6 @@ export default defineConfig({
       },
       output: {
         manualChunks: (id: string) => {
-          // Split Monaco editor into its own chunk (but not workers)
-          if (id.includes('monaco-editor') && !id.includes('editor.worker')) {
-            return 'monaco';
-          }
           // Split xterm.js into its own chunk
           if (id.includes('@xterm/')) {
             return 'xterm';
@@ -73,12 +69,7 @@ export default defineConfig({
   // Env prefix for Tauri
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
 
-  // Optimize dependencies
-  optimizeDeps: {
-    include: ['monaco-editor'],
-  },
-
-  // Resolve configuration for Monaco workers
+  // Resolve configuration for path aliases
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

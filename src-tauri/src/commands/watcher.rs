@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::{AppHandle, Emitter};
@@ -34,7 +34,7 @@ fn event_kind_to_string(kind: &EventKind) -> Option<&'static str> {
 }
 
 /// Check if a path should be ignored (node_modules, .git, target, etc.)
-fn should_ignore_path(path: &PathBuf) -> bool {
+fn should_ignore_path(path: &Path) -> bool {
     let path_str = path.to_string_lossy();
     let ignored_segments = [
         "node_modules",

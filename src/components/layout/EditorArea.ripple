@@ -1,7 +1,7 @@
 import { track, effect } from 'ripple';
 import { EditorTabs } from '../editor/EditorTabs.ripple';
 import { Breadcrumbs } from '../editor/Breadcrumbs.ripple';
-import { CodeEditor } from '../editor/CodeEditor.ripple';
+import { RustEditor } from '../editor/RustEditor.ripple';
 import { GoToLineDialog } from '../editor/GoToLineDialog.ripple';
 import { SettingsPage } from '../settings/SettingsPage.ripple';
 import {
@@ -195,13 +195,9 @@ export component EditorArea() {
         </div>
       } else if (@activeFile && !isSpecialTab(@activeFile)) {
         <div class="absolute inset-0">
-          <CodeEditor
+          <RustEditor
             file={@activeFile}
             onContentChange={handleContentChange}
-            {goToLine}
-            openFind={findOpen}
-            openFindReplace={findReplaceOpen}
-            focusEditor={shouldFocusEditor}
           />
         </div>
       } else {

@@ -1,0 +1,593 @@
+import { track, effect } from 'ripple';
+import { editorEngine, type ViewportHighlights, type Selection } from '../../lib/editor-engine';
+import { EditorViewport } from './EditorViewport.ripple';
+import { EditorInput } from './EditorInput.ripple';
+import type { OpenFile } from '../../lib/workspace';
+import { setCursorPosition } from '../../lib/workspace';
+
+export component RustEditor(props: {
+  file: OpenFile | null;
+  onContentChange: (id: string, content: string) => void;
+}) {
+  console.log('[RustEditor] Component render', { fileId: props.file?.id, hasFile: !!props.file });
+  
+  let scrollTop = track(0);
+  let containerHeight = track(0);
+  let container = track<HTMLDivElement | null>(null);
+  let selections = track<Selection[]>([{ anchorLine: 0, anchorCol: 0, headLine: 0, headCol: 0 }]);
+  let isMouseDown = track(false);
+  let localContent = track<string | null>(null);
+  let serverVersion = track(0);
+  let pendingEdits = track(0);
+  let currentFileId = track<string | null>(null);
+
+  // Initialize/reset local content when file changes
+  effect(() => {
+    console.log('[RustEditor] File change effect START', { 
+      hasFile: !!props.file, 
+      fileId: props.file?.id,
+      currentFileId: @currentFileId,
+      contentLength: props.file?.content?.length
+    });
+    
+    if (props.file) {
+      // Only update if file actually changed
+      if (@currentFileId !== props.file.id) {
+        console.log('[RustEditor] File changed - initializing local state');
+        @localContent = props.file.content;
+        @serverVersion = 0;
+        @pendingEdits = 0;
+        @scrollTop = 0;
+        @selections = [{ anchorLine: 0, anchorCol: 0, headLine: 0, headCol: 0 }];
+        @currentFileId = props.file.id;
+        console.log('[RustEditor] File initialization COMPLETE');
+      } else {
+        console.log('[RustEditor] Same file - skipping initialization');
+      }
+    } else {
+      console.log('[RustEditor] No file - clearing state');
+      @localContent = null;
+      @currentFileId = null;
+    }
+    
+    console.log('[RustEditor] File change effect END');
+  });
+
+  // Scroll to cursor when selection changes
+  effect(() => {
+    console.log('[RustEditor] Scroll effect START', {
+      selectionsLength: @selections.length,
+      hasContainer: !!@container
+    });
+    
+    if (@selections.length === 0 || !@container) {
+      console.log('[RustEditor] Scroll effect SKIP (no selections or container)');
+      return;
+    }
+    
+    const currentSel = @selections[0];
+    const cursorLine = currentSel.headLine;
+    const lineHeight = 20;
+    
+    console.log('[RustEditor] Updating cursor position', { cursorLine, headCol: currentSel.headCol });
+    // Update status bar cursor position (1-indexed for display)
+    setCursorPosition(cursorLine + 1, currentSel.headCol + 1);
+    
+    const cursorTop = cursorLine * lineHeight;
+    const cursorBottom = cursorTop + lineHeight;
+    const viewportTop = @scrollTop;
+    const viewportBottom = viewportTop + @containerHeight;
+    
+    // Scroll if cursor is outside viewport
+    if (cursorTop < viewportTop) {
+      console.log('[RustEditor] Scrolling up to cursor');
+      // Cursor is above viewport - scroll up
+      @container.scrollTop = cursorTop;
+    } else if (cursorBottom > viewportBottom) {
+      console.log('[RustEditor] Scrolling down to cursor');
+      // Cursor is below viewport - scroll down
+      @container.scrollTop = cursorBottom - @containerHeight;
+    }
+    
+    console.log('[RustEditor] Scroll effect END');
+  });
+
+  const onScroll = (e: Event) => {
+    @scrollTop = (e.target as HTMLDivElement).scrollTop;
+  };
+
+  const applyLocalEdit = (range: { startLine: number; startCol: number; endLine: number; endCol: number }, newText: string) => {
+    if (!@localContent) return;
+
+    const lines = @localContent.split('\n');
+    
+    // Extract text before the edit range
+    const beforeLines = lines.slice(0, range.startLine);
+    const startLineText = lines[range.startLine] || '';
+    const beforeText = beforeLines.join('\n') + (beforeLines.length > 0 ? '\n' : '') + startLineText.substring(0, range.startCol);
+    
+    // Extract text after the edit range
+    const endLineText = lines[range.endLine] || '';
+    const afterText = endLineText.substring(range.endCol);
+    const afterLines = lines.slice(range.endLine + 1);
+    const afterFullText = afterText + (afterLines.length > 0 ? '\n' + afterLines.join('\n') : '');
+    
+    // Combine: before + newText + after
+    @localContent = beforeText + newText + afterFullText;
+    
+    // Notify parent of change
+    if (props.file) {
+      props.onContentChange(props.file.id, @localContent);
+    }
+  };
+
+  const onInput = async (text: string) => {
+    if (!props.file || @selections.length === 0) return;
+    
+    const currentSel = @selections[0];
+    const range = {
+      startLine: Math.min(currentSel.anchorLine, currentSel.headLine),
+      startCol: currentSel.anchorLine === currentSel.headLine 
+        ? Math.min(currentSel.anchorCol, currentSel.headCol)
+        : (currentSel.anchorLine < currentSel.headLine ? currentSel.anchorCol : currentSel.headCol),
+      endLine: Math.max(currentSel.anchorLine, currentSel.headLine),
+      endCol: currentSel.anchorLine === currentSel.headLine 
+        ? Math.max(currentSel.anchorCol, currentSel.headCol)
+        : (currentSel.anchorLine < currentSel.headLine ? currentSel.headCol : currentSel.anchorCol),
+    };
+    
+    // Apply optimistically
+    applyLocalEdit(range, text);
+    @pendingEdits++;
+    
+    // Calculate new cursor position after insertion
+    const newLines = text.split('\n');
+    let newLine: number;
+    let newCol: number;
+    
+    if (newLines.length === 1) {
+      newLine = range.startLine;
+      newCol = range.startCol + text.length;
+    } else {
+      newLine = range.startLine + newLines.length - 1;
+      newCol = newLines[newLines.length - 1].length;
+    }
+    
+    const newSelection: Selection = {
+      anchorLine: newLine,
+      anchorCol: newCol,
+      headLine: newLine,
+      headCol: newCol,
+    };
+    @selections = [newSelection];
+    
+    // Send to backend
+    try {
+      const result = await editorEngine.editBuffer(props.file.id, { range, newText: text });
+      @serverVersion = result.version;
+      await editorEngine.setSelections(props.file.id, [newSelection]);
+    } catch (err) {
+      console.error('Edit failed:', err);
+    } finally {
+      @pendingEdits--;
+    }
+  };
+
+  const onKeyDown = async (e: KeyboardEvent) => {
+    if (!props.file || @selections.length === 0) return;
+    
+    const currentSel = @selections[0];
+    let newSel: Selection | null = null;
+    
+    // Get file content to calculate line lengths
+    const lines = (@localContent || props.file.content).split('\n');
+    const currentLineLength = currentSel.headLine < lines.length ? lines[currentSel.headLine].length : 0;
+    
+    // Handle Backspace
+    if (e.key === 'Backspace') {
+      e.preventDefault();
+      
+      // If selection exists, delete selection
+      if (currentSel.anchorLine !== currentSel.headLine || currentSel.anchorCol !== currentSel.headCol) {
+        const range = {
+          startLine: Math.min(currentSel.anchorLine, currentSel.headLine),
+          startCol: currentSel.anchorLine === currentSel.headLine 
+            ? Math.min(currentSel.anchorCol, currentSel.headCol)
+            : (currentSel.anchorLine < currentSel.headLine ? currentSel.anchorCol : currentSel.headCol),
+          endLine: Math.max(currentSel.anchorLine, currentSel.headLine),
+          endCol: currentSel.anchorLine === currentSel.headLine 
+            ? Math.max(currentSel.anchorCol, currentSel.headCol)
+            : (currentSel.anchorLine < currentSel.headLine ? currentSel.headCol : currentSel.anchorCol),
+        };
+        
+        applyLocalEdit(range, '');
+        @pendingEdits++;
+        
+        const newSelection: Selection = {
+          anchorLine: range.startLine,
+          anchorCol: range.startCol,
+          headLine: range.startLine,
+          headCol: range.startCol,
+        };
+        @selections = [newSelection];
+        
+        try {
+          const result = await editorEngine.editBuffer(props.file.id, { range, newText: '' });
+          @serverVersion = result.version;
+          await editorEngine.setSelections(props.file.id, [newSelection]);
+        } finally {
+          @pendingEdits--;
+        }
+      } else if (currentSel.headCol > 0) {
+        // Delete character before cursor
+        const range = {
+          startLine: currentSel.headLine,
+          startCol: currentSel.headCol - 1,
+          endLine: currentSel.headLine,
+          endCol: currentSel.headCol,
+        };
+        
+        applyLocalEdit(range, '');
+        @pendingEdits++;
+        
+        const newSelection: Selection = {
+          anchorLine: currentSel.headLine,
+          anchorCol: currentSel.headCol - 1,
+          headLine: currentSel.headLine,
+          headCol: currentSel.headCol - 1,
+        };
+        @selections = [newSelection];
+        
+        try {
+          const result = await editorEngine.editBuffer(props.file.id, { range, newText: '' });
+          @serverVersion = result.version;
+          await editorEngine.setSelections(props.file.id, [newSelection]);
+        } finally {
+          @pendingEdits--;
+        }
+      } else if (currentSel.headLine > 0) {
+        // Join with previous line
+        const prevLineLength = lines[currentSel.headLine - 1].length;
+        const range = {
+          startLine: currentSel.headLine - 1,
+          startCol: prevLineLength,
+          endLine: currentSel.headLine,
+          endCol: 0,
+        };
+        
+        applyLocalEdit(range, '');
+        @pendingEdits++;
+        
+        const newSelection: Selection = {
+          anchorLine: currentSel.headLine - 1,
+          anchorCol: prevLineLength,
+          headLine: currentSel.headLine - 1,
+          headCol: prevLineLength,
+        };
+        @selections = [newSelection];
+        
+        try {
+          const result = await editorEngine.editBuffer(props.file.id, { range, newText: '' });
+          @serverVersion = result.version;
+          await editorEngine.setSelections(props.file.id, [newSelection]);
+        } finally {
+          @pendingEdits--;
+        }
+      }
+      return;
+    }
+    
+    // Handle Delete
+    if (e.key === 'Delete') {
+      e.preventDefault();
+      
+      // If selection exists, delete selection
+      if (currentSel.anchorLine !== currentSel.headLine || currentSel.anchorCol !== currentSel.headCol) {
+        const range = {
+          startLine: Math.min(currentSel.anchorLine, currentSel.headLine),
+          startCol: currentSel.anchorLine === currentSel.headLine 
+            ? Math.min(currentSel.anchorCol, currentSel.headCol)
+            : (currentSel.anchorLine < currentSel.headLine ? currentSel.anchorCol : currentSel.headCol),
+          endLine: Math.max(currentSel.anchorLine, currentSel.headLine),
+          endCol: currentSel.anchorLine === currentSel.headLine 
+            ? Math.max(currentSel.anchorCol, currentSel.headCol)
+            : (currentSel.anchorLine < currentSel.headLine ? currentSel.headCol : currentSel.anchorCol),
+        };
+        
+        applyLocalEdit(range, '');
+        @pendingEdits++;
+        
+        const newSelection: Selection = {
+          anchorLine: range.startLine,
+          anchorCol: range.startCol,
+          headLine: range.startLine,
+          headCol: range.startCol,
+        };
+        @selections = [newSelection];
+        
+        try {
+          const result = await editorEngine.editBuffer(props.file.id, { range, newText: '' });
+          @serverVersion = result.version;
+          await editorEngine.setSelections(props.file.id, [newSelection]);
+        } finally {
+          @pendingEdits--;
+        }
+      } else if (currentSel.headCol < currentLineLength) {
+        // Delete character after cursor
+        const range = {
+          startLine: currentSel.headLine,
+          startCol: currentSel.headCol,
+          endLine: currentSel.headLine,
+          endCol: currentSel.headCol + 1,
+        };
+        
+        applyLocalEdit(range, '');
+        @pendingEdits++;
+        
+        // Cursor stays in same position
+        const newSelection: Selection = {
+          anchorLine: currentSel.headLine,
+          anchorCol: currentSel.headCol,
+          headLine: currentSel.headLine,
+          headCol: currentSel.headCol,
+        };
+        @selections = [newSelection];
+        
+        try {
+          const result = await editorEngine.editBuffer(props.file.id, { range, newText: '' });
+          @serverVersion = result.version;
+          await editorEngine.setSelections(props.file.id, [newSelection]);
+        } finally {
+          @pendingEdits--;
+        }
+      } else if (currentSel.headLine < lines.length - 1) {
+        // Join with next line
+        const range = {
+          startLine: currentSel.headLine,
+          startCol: currentLineLength,
+          endLine: currentSel.headLine + 1,
+          endCol: 0,
+        };
+        
+        applyLocalEdit(range, '');
+        @pendingEdits++;
+        
+        // Cursor stays in same position
+        const newSelection: Selection = {
+          anchorLine: currentSel.headLine,
+          anchorCol: currentSel.headCol,
+          headLine: currentSel.headLine,
+          headCol: currentSel.headCol,
+        };
+        @selections = [newSelection];
+        
+        try {
+          const result = await editorEngine.editBuffer(props.file.id, { range, newText: '' });
+          @serverVersion = result.version;
+          await editorEngine.setSelections(props.file.id, [newSelection]);
+        } finally {
+          @pendingEdits--;
+        }
+      }
+      return;
+    }
+    
+    // Handle Enter
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      await onInput('\n');
+      return;
+    }
+    
+    // Handle Undo (Ctrl+Z / Cmd+Z)
+    if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      e.preventDefault();
+      try {
+        const result = await editorEngine.undo(props.file.id);
+        if (result.success) {
+          @localContent = result.content;
+          @serverVersion = result.version;
+          @selections = result.selections.selections;
+          props.onContentChange(props.file.id, result.content);
+        }
+      } catch (err) {
+        console.error('Undo failed:', err);
+      }
+      return;
+    }
+    
+    // Handle Redo (Ctrl+Y / Cmd+Shift+Z)
+    if ((e.key === 'y' && (e.ctrlKey || e.metaKey)) || 
+        (e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey)) {
+      e.preventDefault();
+      try {
+        const result = await editorEngine.redo(props.file.id);
+        if (result.success) {
+          @localContent = result.content;
+          @serverVersion = result.version;
+          @selections = result.selections.selections;
+          props.onContentChange(props.file.id, result.content);
+        }
+      } catch (err) {
+        console.error('Redo failed:', err);
+      }
+      return;
+    }
+    
+    switch (e.key) {
+      case 'ArrowLeft':
+        e.preventDefault();
+        if (currentSel.headCol > 0) {
+          newSel = {
+            anchorLine: e.shiftKey ? currentSel.anchorLine : currentSel.headLine,
+            anchorCol: e.shiftKey ? currentSel.anchorCol : currentSel.headCol - 1,
+            headLine: currentSel.headLine,
+            headCol: currentSel.headCol - 1,
+          };
+        } else if (currentSel.headLine > 0) {
+          // Move to end of previous line
+          const prevLineLength = lines[currentSel.headLine - 1].length;
+          newSel = {
+            anchorLine: e.shiftKey ? currentSel.anchorLine : currentSel.headLine - 1,
+            anchorCol: e.shiftKey ? currentSel.anchorCol : prevLineLength,
+            headLine: currentSel.headLine - 1,
+            headCol: prevLineLength,
+          };
+        }
+        break;
+        
+      case 'ArrowRight':
+        e.preventDefault();
+        if (currentSel.headCol < currentLineLength) {
+          newSel = {
+            anchorLine: e.shiftKey ? currentSel.anchorLine : currentSel.headLine,
+            anchorCol: e.shiftKey ? currentSel.anchorCol : currentSel.headCol + 1,
+            headLine: currentSel.headLine,
+            headCol: currentSel.headCol + 1,
+          };
+        } else if (currentSel.headLine < lines.length - 1) {
+          // Move to start of next line
+          newSel = {
+            anchorLine: e.shiftKey ? currentSel.anchorLine : currentSel.headLine + 1,
+            anchorCol: e.shiftKey ? currentSel.anchorCol : 0,
+            headLine: currentSel.headLine + 1,
+            headCol: 0,
+          };
+        }
+        break;
+        
+      case 'ArrowUp':
+        e.preventDefault();
+        if (currentSel.headLine > 0) {
+          const targetLineLength = lines[currentSel.headLine - 1].length;
+          newSel = {
+            anchorLine: e.shiftKey ? currentSel.anchorLine : currentSel.headLine - 1,
+            anchorCol: e.shiftKey ? currentSel.anchorCol : Math.min(currentSel.headCol, targetLineLength),
+            headLine: currentSel.headLine - 1,
+            headCol: Math.min(currentSel.headCol, targetLineLength),
+          };
+        }
+        break;
+        
+      case 'ArrowDown':
+        e.preventDefault();
+        if (currentSel.headLine < lines.length - 1) {
+          const targetLineLength = lines[currentSel.headLine + 1].length;
+          newSel = {
+            anchorLine: e.shiftKey ? currentSel.anchorLine : currentSel.headLine + 1,
+            anchorCol: e.shiftKey ? currentSel.anchorCol : Math.min(currentSel.headCol, targetLineLength),
+            headLine: currentSel.headLine + 1,
+            headCol: Math.min(currentSel.headCol, targetLineLength),
+          };
+        }
+        break;
+        
+      case 'Home':
+        e.preventDefault();
+        newSel = {
+          anchorLine: e.shiftKey ? currentSel.anchorLine : currentSel.headLine,
+          anchorCol: e.shiftKey ? currentSel.anchorCol : 0,
+          headLine: currentSel.headLine,
+          headCol: 0,
+        };
+        break;
+        
+      case 'End':
+        e.preventDefault();
+        newSel = {
+          anchorLine: e.shiftKey ? currentSel.anchorLine : currentSel.headLine,
+          anchorCol: e.shiftKey ? currentSel.anchorCol : currentLineLength,
+          headLine: currentSel.headLine,
+          headCol: currentLineLength,
+        };
+        break;
+    }
+    
+    if (newSel) {
+      @selections = [newSel];
+      await editorEngine.setSelections(props.file.id, [newSel]);
+    }
+  };
+
+  const handleMouseDown = (line: number, col: number) => {
+    @isMouseDown = true;
+    const newSelection: Selection = {
+      anchorLine: line,
+      anchorCol: col,
+      headLine: line,
+      headCol: col,
+    };
+    @selections = [newSelection];
+    
+    if (props.file) {
+      editorEngine.setSelections(props.file.id, [newSelection]).catch(console.error);
+    }
+  };
+
+  const handleMouseMove = (line: number, col: number) => {
+    if (!@isMouseDown || @selections.length === 0) return;
+    
+    const currentSelection = @selections[0];
+    const updatedSelection: Selection = {
+      anchorLine: currentSelection.anchorLine,
+      anchorCol: currentSelection.anchorCol,
+      headLine: line,
+      headCol: col,
+    };
+    @selections = [updatedSelection];
+    
+    if (props.file) {
+      editorEngine.setSelections(props.file.id, [updatedSelection]).catch(console.error);
+    }
+  };
+
+  const handleMouseUp = () => {
+    @isMouseDown = false;
+  };
+
+  const containerRef = (el: HTMLDivElement) => {
+    @container = el;
+    if (el) {
+      @containerHeight = el.clientHeight;
+    }
+  };
+
+  // Add global mouse up listener
+  effect(() => {
+    console.log('[RustEditor] Global mouseup effect START');
+    const onGlobalMouseUp = () => {
+      @isMouseDown = false;
+    };
+    window.addEventListener('mouseup', onGlobalMouseUp);
+    console.log('[RustEditor] Global mouseup listener added');
+    return () => {
+      console.log('[RustEditor] Global mouseup listener cleanup');
+      window.removeEventListener('mouseup', onGlobalMouseUp);
+    };
+  });
+
+  console.log('[RustEditor] Rendering template', { 
+    fileId: props.file?.id,
+    hasLocalContent: !!@localContent,
+    localContentLength: @localContent?.length
+  });
+
+  <div 
+    {ref containerRef}
+    class="relative h-full w-full overflow-y-auto bg-[#1e1e1e] text-white"
+    onScroll={onScroll}
+  >
+    <EditorViewport 
+      bufferId={props.file?.id || null}
+      content={@localContent}
+      scrollTop={@scrollTop}
+      viewportHeight={@containerHeight}
+      lineHeight={20}
+      selections={@selections}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+    />
+    <EditorInput onInput={onInput} onKeyDown={onKeyDown} />
+  </div>
+}

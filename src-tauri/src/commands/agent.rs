@@ -80,14 +80,12 @@ pub async fn start_agent(
         let app_clone = app.clone();
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    let _ = app_clone.emit("agent-output", AgentOutput {
-                        id: agent_id.clone(),
-                        stream: "stdout".to_string(),
-                        data: line,
-                    });
-                }
+            for line in reader.lines().flatten() {
+                let _ = app_clone.emit("agent-output", AgentOutput {
+                    id: agent_id.clone(),
+                    stream: "stdout".to_string(),
+                    data: line,
+                });
             }
         });
     }
@@ -98,14 +96,12 @@ pub async fn start_agent(
         let app_clone = app.clone();
         thread::spawn(move || {
             let reader = BufReader::new(stderr);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    let _ = app_clone.emit("agent-output", AgentOutput {
-                        id: agent_id.clone(),
-                        stream: "stderr".to_string(),
-                        data: line,
-                    });
-                }
+            for line in reader.lines().flatten() {
+                let _ = app_clone.emit("agent-output", AgentOutput {
+                    id: agent_id.clone(),
+                    stream: "stderr".to_string(),
+                    data: line,
+                });
             }
         });
     }

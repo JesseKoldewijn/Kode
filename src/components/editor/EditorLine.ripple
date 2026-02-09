@@ -1,0 +1,118 @@
+import type { Selection, HighlightedLine, HighlightSpan } from '../../lib/editor-engine';
+
+interface TextSegment {
+  text: string;
+  scope?: string;
+}
+
+export component EditorLine(props: {
+  lineNum: number;
+  lineText: string;
+  highlightLine: HighlightedLine | undefined;
+  selections: Selection[];
+  onMouseDown: (e: MouseEvent, lineNum: number, lineText: string) => void;
+  onMouseMove: (e: MouseEvent, lineNum: number, lineText: string) => void;
+  onMouseUp: () => void;
+}) {
+  // Pre-compute selection state for this line (called once per render)
+  const selectionRange = (() => {
+    for (const sel of props.selections) {
+      const startLine = Math.min(sel.anchorLine, sel.headLine);
+      const endLine = Math.max(sel.anchorLine, sel.headLine);
+      const startCol = sel.anchorLine <= sel.headLine ? sel.anchorCol : sel.headCol;
+      const endCol = sel.anchorLine <= sel.headLine ? sel.headCol : sel.anchorCol;
+      
+      if (props.lineNum >= startLine && props.lineNum <= endLine) {
+        let start = 0;
+        let end = props.lineText.length;
+        
+        if (props.lineNum === startLine) {
+          start = startCol;
+        }
+        if (props.lineNum === endLine) {
+          end = endCol;
+        }
+        
+        return { start, end };
+      }
+    }
+    return null;
+  })();
+
+  const cursorCol = (() => {
+    for (const sel of props.selections) {
+      if (sel.anchorLine === sel.headLine && sel.anchorCol === sel.headCol && sel.headLine === props.lineNum) {
+        return sel.headCol;
+      }
+    }
+    return null;
+  })();
+
+  const textSegments = (() => {
+    if (!props.highlightLine || props.highlightLine.spans.length === 0) {
+      return [{ text: props.lineText }];
+    }
+
+    const result: TextSegment[] = [];
+    let lastCol = 0;
+
+    for (const span of props.highlightLine.spans) {
+      // Add text before span
+      if (span.startCol > lastCol) {
+        result.push({ text: props.lineText.substring(lastCol, span.startCol) });
+      }
+      // Add highlighted span
+      result.push({ 
+        text: props.lineText.substring(span.startCol, span.endCol), 
+        scope: span.scope 
+      });
+      lastCol = span.endCol;
+    }
+
+    // Add remaining text
+    if (lastCol < props.lineText.length) {
+      result.push({ text: props.lineText.substring(lastCol) });
+    }
+
+    return result;
+  })();
+
+  <div 
+    class="editor-line flex h-[20px] px-2 hover:bg-white/5 relative"
+    onMouseDown={(e: MouseEvent) => props.onMouseDown(e, props.lineNum, props.lineText)}
+    onMouseMove={(e: MouseEvent) => props.onMouseMove(e, props.lineNum, props.lineText)}
+    onMouseUp={props.onMouseUp}
+  >
+    <div class="w-10 flex-shrink-0 text-right pr-4 text-white/30 select-none">
+      {props.lineNum + 1}
+    </div>
+    <div class="editor-line-content whitespace-pre relative flex-1">
+      if (selectionRange !== null && selectionRange.start < selectionRange.end) {
+        <div 
+          class="absolute top-0 h-full bg-[#264f78] pointer-events-none"
+          style={{ 
+            left: (selectionRange.start * 7.8) + 'px', 
+            width: ((selectionRange.end - selectionRange.start) * 7.8) + 'px' 
+          }}
+        />
+      }
+      
+      if (cursorCol !== null) {
+        <div 
+          class="absolute top-0 h-full w-[2px] bg-white animate-pulse pointer-events-none"
+          style={{ left: (cursorCol * 7.8) + 'px' }}
+        />
+      }
+      
+      <div class="relative z-10">
+        for (const segment of textSegments; key segment.text + (segment.scope || '')) {
+          if (segment.scope) {
+            <span class={`token-${segment.scope}`}>{segment.text}</span>
+          } else {
+            {segment.text}
+          }
+        }
+      </div>
+    </div>
+  </div>
+}

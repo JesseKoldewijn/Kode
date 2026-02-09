@@ -1,4 +1,5 @@
 import { fs, git, type FileEntry } from './tauri';
+import { editorEngine } from './editor-engine';
 import { startFileWatcher, stopFileWatcher, subscribeToFileChanges } from './file-watcher';
 import type { DebouncedFileChange } from './file-watcher';
 
@@ -261,16 +262,20 @@ export function setWorkspacePath(path: string | null): void {
 }
 
 export function setActiveFileId(id: string | null): void {
+  console.log('[Workspace] setActiveFileId START:', id);
   activeFileId = id;
+  console.log('[Workspace] Notifying active file subscribers');
   notifyActiveFileSubscribers();
 
   // Update file info for the newly active file
   if (id) {
     const file = openFiles.find((f) => f.id === id);
     if (file && !file.specialTab) {
+      console.log('[Workspace] Updating file info for active file');
       updateFileInfo(file.content, file.id);
     }
   }
+  console.log('[Workspace] setActiveFileId COMPLETE');
 }
 
 export function setCursorPosition(line: number, column: number): void {
@@ -471,16 +476,22 @@ export function getLanguageFromPath(path: string): string {
 }
 
 export async function openFile(path: string, name: string): Promise<void> {
+  console.log('[Workspace] openFile START:', path);
+
   // Check if file is already open
   const existing = openFiles.find((f) => f.path === path);
   if (existing) {
+    console.log('[Workspace] File already open, activating:', path);
     // File is already open, just make it active
     setActiveFileId(existing.id);
     return;
   }
 
   try {
+    console.log('[Workspace] Reading file from disk:', path);
     const content = await fs.readFile(path);
+    console.log('[Workspace] File read complete, bytes:', content.length);
+
     const file: OpenFile = {
       id: path,
       path,
@@ -489,14 +500,31 @@ export async function openFile(path: string, name: string): Promise<void> {
       isDirty: false,
       language: getLanguageFromPath(path),
     };
+
+    console.log('[Workspace] Adding file to openFiles array');
     openFiles.push(file);
+    console.log('[Workspace] Notifying subscribers');
     notifyOpenFilesSubscribers();
 
+    // Shadow Mode: Open buffer in Rust engine
+    console.log('[Workspace] Calling editorEngine.openBuffer');
+    editorEngine
+      .openBuffer(path)
+      .then((info) => {
+        console.log('[Workspace] editorEngine.openBuffer resolved:', info);
+      })
+      .catch((err) => {
+        console.warn('[Workspace] Failed to open shadow buffer in Rust:', err);
+      });
+
     // Detect line ending info for the new file
+    console.log('[Workspace] Updating file info');
     updateFileInfo(content, file.id);
 
     // Set the newly opened file as active
+    console.log('[Workspace] Setting active file ID');
     setActiveFileId(file.id);
+    console.log('[Workspace] openFile COMPLETE:', path);
   } catch (error) {
     console.error('Failed to open file:', error);
   }
@@ -529,6 +557,11 @@ export function closeFile(id: string): void {
 
   openFiles.splice(index, 1);
   notifyOpenFilesSubscribers();
+
+  // Shadow Mode: Close buffer in Rust engine
+  editorEngine.closeBuffer(id).catch((err) => {
+    console.warn('[Workspace] Failed to close shadow buffer in Rust:', err);
+  });
 
   // If we closed the active file, select a new one
   if (wasActive) {

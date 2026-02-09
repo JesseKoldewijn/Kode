@@ -3,3 +3,4 @@ pub mod terminal;
 pub mod agent;
 pub mod watcher;
 pub mod git;
+pub mod editor;

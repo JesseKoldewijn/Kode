@@ -588,3 +588,62 @@ body {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* ============================================================================
+   Syntax Highlighting Tokens
+   ============================================================================ */
+
+.token-keyword {
+  color: var(--syntax-keyword);
+  font-weight: 600;
+}
+
+.token-string {
+  color: var(--syntax-string);
+}
+
+.token-comment {
+  color: var(--syntax-comment);
+  font-style: italic;
+}
+
+.token-function {
+  color: var(--syntax-function);
+}
+
+.token-variable {
+  color: var(--syntax-variable);
+}
+
+.token-number {
+  color: var(--syntax-number);
+}
+
+.token-type {
+  color: var(--syntax-type);
+}
+
+.token-constant {
+  color: var(--syntax-constant);
+  font-weight: 500;
+}
+
+.token-operator {
+  color: var(--text-secondary);
+}
+
+.token-property {
+  color: var(--syntax-variable);
+}
+
+.token-attribute {
+  color: var(--syntax-type);
+}
+
+.token-tag {
+  color: var(--syntax-keyword);
+}
+
+.token-punctuation {
+  color: var(--text-muted);
+}

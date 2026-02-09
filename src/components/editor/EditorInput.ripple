@@ -1,0 +1,26 @@
+import { track } from 'ripple';
+
+export component EditorInput(props: {
+  onInput: (text: string) => void;
+  onKeyDown: (e: KeyboardEvent) => void;
+}) {
+  let textarea = track<HTMLTextAreaElement | null>(null);
+
+  const onInput = (e: InputEvent) => {
+    const text = (e.target as HTMLTextAreaElement).value;
+    if (text) {
+      props.onInput(text);
+      (e.target as HTMLTextAreaElement).value = '';
+    }
+  };
+
+  <textarea
+    {ref (el: HTMLTextAreaElement) => @textarea = el}
+    class="absolute opacity-0 pointer-events-none z-[-1]"
+    onInput={onInput}
+    onKeyDown={props.onKeyDown}
+    autocapitalize="off"
+    autocorrect="off"
+    spellcheck={false}
+  />
+}
