@@ -35,14 +35,21 @@ pub async fn edit_buffer(buffer_id: String, edit: EditOperation) -> Result<EditR
     
     // Acquire per-buffer write lock
     log::info!("[edit_buffer] Requesting per-buffer WRITE lock: buffer_id={}", buffer_id);
-    let mut buffer = buffer_arc.write().await;
-    log::info!("[edit_buffer] Per-buffer WRITE lock ACQUIRED: buffer_id={}", buffer_id);
+    let result = {
+        let mut buffer = buffer_arc.write().await;
+        log::info!("[edit_buffer] Per-buffer WRITE lock ACQUIRED: buffer_id={}", buffer_id);
+        
+        let edit_start = std::time::Instant::now();
+        let result = apply_edit(&mut buffer, edit);
+        let edit_duration = edit_start.elapsed();
+        log::info!("[edit_buffer] apply_edit COMPLETE: buffer_id={}, duration={:?}, new_version={}", 
+            buffer_id, edit_duration, result.version);
+        result
+    }; // Write lock dropped here
     
-    let edit_start = std::time::Instant::now();
-    let result = apply_edit(&mut buffer, edit);
-    let edit_duration = edit_start.elapsed();
-    log::info!("[edit_buffer] apply_edit COMPLETE: buffer_id={}, duration={:?}, new_version={}", 
-        buffer_id, edit_duration, result.version);
+    // Drop Arc
+    drop(buffer_arc);
+    
     Ok(result)
 }
 
@@ -176,15 +183,23 @@ pub async fn get_highlights(buffer_id: String, start_line: u32, end_line: u32) -
     
     // Get highlights with per-buffer read lock (tree exists, so this is fast)
     log::info!("[get_highlights] Requesting per-buffer READ lock (render highlights): buffer_id={}", buffer_id);
-    let buffer = buffer_arc.read().await;
-    log::info!("[get_highlights] Per-buffer READ lock ACQUIRED (render): buffer_id={}", buffer_id);
+    let result = {
+        let buffer = buffer_arc.read().await;
+        log::info!("[get_highlights] Per-buffer READ lock ACQUIRED (render): buffer_id={}", buffer_id);
+        
+        let highlight_start = std::time::Instant::now();
+        let highlights = get_viewport_highlights(&buffer, start_line, end_line);
+        let highlight_duration = highlight_start.elapsed();
+        log::info!("[get_highlights] Highlighting COMPLETE: buffer_id={}, duration={:?}, line_count={}", 
+            buffer_id, highlight_duration, highlights.lines.len());
+        highlights
+    }; // Per-buffer READ lock dropped here
+    log::info!("[get_highlights] Per-buffer READ lock RELEASED: buffer_id={}", buffer_id);
     
-    let highlight_start = std::time::Instant::now();
-    let result = get_viewport_highlights(&buffer, start_line, end_line);
-    let highlight_duration = highlight_start.elapsed();
-    log::info!("[get_highlights] Highlighting COMPLETE: buffer_id={}, duration={:?}, line_count={}", 
-        buffer_id, highlight_duration, result.lines.len());
-    log::info!("[get_highlights] Per-buffer READ lock will be RELEASED: buffer_id={}", buffer_id);
+    // Explicitly drop the Arc to ensure no references remain
+    drop(buffer_arc);
+    log::info!("[get_highlights] Arc dropped: buffer_id={}", buffer_id);
+    
     Ok(result)
 }
 
@@ -200,17 +215,24 @@ pub async fn set_selections(buffer_id: String, selections: Vec<Selection>) -> Re
     };
     
     // Acquire per-buffer write lock
-    let mut buffer = buffer_arc.write().await;
+    let result = {
+        let mut buffer = buffer_arc.write().await;
+        
+        if selections.is_empty() {
+            buffer.selections.clear();
+        } else {
+            buffer.selections.selections = selections;
+            buffer.selections.primary_index = 0;
+        }
+        
+        buffer.selections.clone()
+    }; // Write lock dropped here
     
-    if selections.is_empty() {
-        buffer.selections.clear();
-    } else {
-        buffer.selections.selections = selections;
-        buffer.selections.primary_index = 0;
-    }
+    // Drop Arc
+    drop(buffer_arc);
     
     log::info!("[set_selections] COMPLETE: buffer_id={}", buffer_id);
-    Ok(buffer.selections.clone())
+    Ok(result)
 }
 
 #[tauri::command]
@@ -225,9 +247,16 @@ pub async fn get_selections(buffer_id: String) -> Result<SelectionSet> {
     };
     
     // Acquire per-buffer read lock
-    let buffer = buffer_arc.read().await;
+    let result = {
+        let buffer = buffer_arc.read().await;
+        buffer.selections.clone()
+    }; // Read lock dropped here
+    
+    // Drop Arc
+    drop(buffer_arc);
+    
     log::info!("[get_selections] COMPLETE: buffer_id={}", buffer_id);
-    Ok(buffer.selections.clone())
+    Ok(result)
 }
 
 #[derive(Serialize)]
@@ -255,47 +284,54 @@ pub async fn undo_buffer(buffer_id: String) -> Result<UndoRedoResult> {
     
     // Acquire per-buffer write lock
     log::info!("[undo_buffer] Requesting per-buffer WRITE lock: buffer_id={}", buffer_id);
-    let mut buffer = buffer_arc.write().await;
-    log::info!("[undo_buffer] Per-buffer WRITE lock ACQUIRED: buffer_id={}", buffer_id);
+    let result = {
+        let mut buffer = buffer_arc.write().await;
+        log::info!("[undo_buffer] Per-buffer WRITE lock ACQUIRED: buffer_id={}", buffer_id);
+        
+        if let Some(group) = buffer.history.undo() {
+            // Apply edits in reverse order (undo)
+            for edit in group.edits.iter().rev() {
+                // Replace new_text with old_text
+                let start_byte = buffer.rope.line_to_byte(edit.range.start_line as usize) + edit.range.start_col as usize;
+                let end_byte = start_byte + edit.new_text.len();
+                
+                buffer.rope.remove(start_byte..end_byte);
+                buffer.rope.insert(start_byte, &edit.old_text);
+                
+                buffer.version += 1;
+                buffer.is_dirty = true;
+            }
+            
+            // Restore old selections from first edit
+            if let Some(first_edit) = group.edits.first() {
+                buffer.selections = first_edit.old_selections.clone();
+            }
+            
+            // Invalidate parse tree (will be lazily re-parsed on next highlight request)
+            buffer.tree = None;
+            
+            log::info!("[undo_buffer] COMPLETE (success): buffer_id={}, new_version={}", buffer_id, buffer.version);
+            UndoRedoResult {
+                success: true,
+                version: buffer.version,
+                content: buffer.rope.to_string(),
+                selections: buffer.selections.clone(),
+            }
+        } else {
+            log::info!("[undo_buffer] COMPLETE (no history): buffer_id={}", buffer_id);
+            UndoRedoResult {
+                success: false,
+                version: buffer.version,
+                content: buffer.rope.to_string(),
+                selections: buffer.selections.clone(),
+            }
+        }
+    }; // Write lock dropped here
     
-    if let Some(group) = buffer.history.undo() {
-        // Apply edits in reverse order (undo)
-        for edit in group.edits.iter().rev() {
-            // Replace new_text with old_text
-            let start_byte = buffer.rope.line_to_byte(edit.range.start_line as usize) + edit.range.start_col as usize;
-            let end_byte = start_byte + edit.new_text.len();
-            
-            buffer.rope.remove(start_byte..end_byte);
-            buffer.rope.insert(start_byte, &edit.old_text);
-            
-            buffer.version += 1;
-            buffer.is_dirty = true;
-        }
-        
-        // Restore old selections from first edit
-        if let Some(first_edit) = group.edits.first() {
-            buffer.selections = first_edit.old_selections.clone();
-        }
-        
-        // Invalidate parse tree (will be lazily re-parsed on next highlight request)
-        buffer.tree = None;
-        
-        log::info!("[undo_buffer] COMPLETE (success): buffer_id={}, new_version={}", buffer_id, buffer.version);
-        Ok(UndoRedoResult {
-            success: true,
-            version: buffer.version,
-            content: buffer.rope.to_string(),
-            selections: buffer.selections.clone(),
-        })
-    } else {
-        log::info!("[undo_buffer] COMPLETE (no history): buffer_id={}", buffer_id);
-        Ok(UndoRedoResult {
-            success: false,
-            version: buffer.version,
-            content: buffer.rope.to_string(),
-            selections: buffer.selections.clone(),
-        })
-    }
+    // Drop Arc
+    drop(buffer_arc);
+    
+    Ok(result)
 }
 
 #[tauri::command]
@@ -314,47 +350,54 @@ pub async fn redo_buffer(buffer_id: String) -> Result<UndoRedoResult> {
     
     // Acquire per-buffer write lock
     log::info!("[redo_buffer] Requesting per-buffer WRITE lock: buffer_id={}", buffer_id);
-    let mut buffer = buffer_arc.write().await;
-    log::info!("[redo_buffer] Per-buffer WRITE lock ACQUIRED: buffer_id={}", buffer_id);
+    let result = {
+        let mut buffer = buffer_arc.write().await;
+        log::info!("[redo_buffer] Per-buffer WRITE lock ACQUIRED: buffer_id={}", buffer_id);
+        
+        if let Some(group) = buffer.history.redo() {
+            // Apply edits in forward order (redo)
+            for edit in group.edits.iter() {
+                // Replace old_text with new_text
+                let start_byte = buffer.rope.line_to_byte(edit.range.start_line as usize) + edit.range.start_col as usize;
+                let end_byte = start_byte + edit.old_text.len();
+                
+                buffer.rope.remove(start_byte..end_byte);
+                buffer.rope.insert(start_byte, &edit.new_text);
+                
+                buffer.version += 1;
+                buffer.is_dirty = true;
+            }
+            
+            // Restore new selections from last edit
+            if let Some(last_edit) = group.edits.last() {
+                buffer.selections = last_edit.new_selections.clone();
+            }
+            
+            // Invalidate parse tree (will be lazily re-parsed on next highlight request)
+            buffer.tree = None;
+            
+            log::info!("[redo_buffer] COMPLETE (success): buffer_id={}, new_version={}", buffer_id, buffer.version);
+            UndoRedoResult {
+                success: true,
+                version: buffer.version,
+                content: buffer.rope.to_string(),
+                selections: buffer.selections.clone(),
+            }
+        } else {
+            log::info!("[redo_buffer] COMPLETE (no redo stack): buffer_id={}", buffer_id);
+            UndoRedoResult {
+                success: false,
+                version: buffer.version,
+                content: buffer.rope.to_string(),
+                selections: buffer.selections.clone(),
+            }
+        }
+    }; // Write lock dropped here
     
-    if let Some(group) = buffer.history.redo() {
-        // Apply edits in forward order (redo)
-        for edit in group.edits.iter() {
-            // Replace old_text with new_text
-            let start_byte = buffer.rope.line_to_byte(edit.range.start_line as usize) + edit.range.start_col as usize;
-            let end_byte = start_byte + edit.old_text.len();
-            
-            buffer.rope.remove(start_byte..end_byte);
-            buffer.rope.insert(start_byte, &edit.new_text);
-            
-            buffer.version += 1;
-            buffer.is_dirty = true;
-        }
-        
-        // Restore new selections from last edit
-        if let Some(last_edit) = group.edits.last() {
-            buffer.selections = last_edit.new_selections.clone();
-        }
-        
-        // Invalidate parse tree (will be lazily re-parsed on next highlight request)
-        buffer.tree = None;
-        
-        log::info!("[redo_buffer] COMPLETE (success): buffer_id={}, new_version={}", buffer_id, buffer.version);
-        Ok(UndoRedoResult {
-            success: true,
-            version: buffer.version,
-            content: buffer.rope.to_string(),
-            selections: buffer.selections.clone(),
-        })
-    } else {
-        log::info!("[redo_buffer] COMPLETE (no redo stack): buffer_id={}", buffer_id);
-        Ok(UndoRedoResult {
-            success: false,
-            version: buffer.version,
-            content: buffer.rope.to_string(),
-            selections: buffer.selections.clone(),
-        })
-    }
+    // Drop Arc
+    drop(buffer_arc);
+    
+    Ok(result)
 }
 
 #[tauri::command]
@@ -369,12 +412,18 @@ pub async fn get_history_state(buffer_id: String) -> Result<HistoryState> {
     };
     
     // Acquire per-buffer read lock
-    let buffer = buffer_arc.read().await;
+    let result = {
+        let buffer = buffer_arc.read().await;
+        HistoryState {
+            can_undo: buffer.history.can_undo(),
+            can_redo: buffer.history.can_redo(),
+        }
+    }; // Read lock dropped here
+    
+    // Drop Arc
+    drop(buffer_arc);
     
     log::info!("[get_history_state] COMPLETE: buffer_id={}, can_undo={}, can_redo={}", 
-        buffer_id, buffer.history.can_undo(), buffer.history.can_redo());
-    Ok(HistoryState {
-        can_undo: buffer.history.can_undo(),
-        can_redo: buffer.history.can_redo(),
-    })
+        buffer_id, result.can_undo, result.can_redo);
+    Ok(result)
 }

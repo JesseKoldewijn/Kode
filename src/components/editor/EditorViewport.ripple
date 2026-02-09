@@ -18,20 +18,33 @@ export component EditorViewport(props: {
   let highlights = track<ViewportHighlights | null>(null);
   let cachedLines = track<string[]>([]);
   let lastBufferId = track<string | null>(null);
-  let highlightFetchTimer = track<number | null>(null);
+  let highlightFetchTimer: number | null = null; // NOT tracked - just a regular variable
 
   // Cache split lines to avoid repeated splits
   effect(() => {
+    console.log('[EditorViewport] Cache lines effect START', { 
+      hasContent: !!props.content, 
+      contentLength: props.content?.length 
+    });
+    
     if (props.content) {
       @cachedLines = props.content.split('\n');
+      console.log('[EditorViewport] Lines cached:', @cachedLines.length);
     } else {
       @cachedLines = [];
+      console.log('[EditorViewport] No content - cleared cached lines');
     }
   });
 
   // Reset highlights when buffer changes
   effect(() => {
+    console.log('[EditorViewport] Buffer change effect', { 
+      newBufferId: props.bufferId, 
+      lastBufferId: @lastBufferId 
+    });
+    
     if (props.bufferId !== @lastBufferId) {
+      console.log('[EditorViewport] Buffer changed - clearing highlights');
       @highlights = null;
       @lastBufferId = props.bufferId;
     }
@@ -48,25 +61,24 @@ export component EditorViewport(props: {
     }
 
     // Clear existing timer
-    if (@highlightFetchTimer !== null) {
-      clearTimeout(@highlightFetchTimer);
+    if (highlightFetchTimer !== null) {
+      clearTimeout(highlightFetchTimer);
     }
 
     const startLine = Math.floor(props.scrollTop / props.lineHeight);
     const endLine = startLine + Math.ceil(props.viewportHeight / props.lineHeight) + 1;
 
     console.log('[EditorViewport] Setting highlight fetch timer', { startLine, endLine });
-    // TEMPORARY: Disable highlight fetching to test if this is causing the freeze
-    console.log('[EditorViewport] Highlight fetching DISABLED (debugging)');
-    // @highlightFetchTimer = setTimeout(() => {
-    //   console.log('[EditorViewport] Fetching highlights from Rust', { bufferId: props.bufferId, startLine, endLine });
-    //   editorEngine.getHighlights(props.bufferId!, startLine, endLine).then((data) => {
-    //     console.log('[EditorViewport] Highlights received', { linesCount: data.lines.length });
-    //     @highlights = data;
-    //   }).catch((err) => {
-    //     console.error('[EditorViewport] Failed to fetch highlights:', err);
-    //   });
-    // }, 16) as unknown as number;
+    // Debounce by 16ms (one frame) to avoid fetching on every scroll event
+    highlightFetchTimer = setTimeout(() => {
+      console.log('[EditorViewport] Fetching highlights from Rust', { bufferId: props.bufferId, startLine, endLine });
+      editorEngine.getHighlights(props.bufferId!, startLine, endLine).then((data) => {
+        console.log('[EditorViewport] Highlights received', { linesCount: data.lines.length });
+        @highlights = data;
+      }).catch((err) => {
+        console.error('[EditorViewport] Failed to fetch highlights:', err);
+      });
+    }, 16) as unknown as number;
   });
 
   const totalHeight = @cachedLines.length * props.lineHeight;
@@ -132,7 +144,7 @@ export component EditorViewport(props: {
   <div class="relative w-full overflow-hidden font-mono text-[13px]" style={{ height: props.viewportHeight + 'px' }}>
     <div class="absolute w-full" style={{ height: totalHeight + 'px' }}>
       <div class="absolute w-full" style={{ transform: `translateY(${startLine * props.lineHeight}px)` }}>
-        for (const lineNum of getVisibleLineNumbers(); key lineNum) {
+        for (const lineNum of getVisibleLineNumbers(); key `${props.bufferId}-${lineNum}`) {
           <EditorLine 
             lineNum={lineNum}
             lineText={getLineText(lineNum)}
