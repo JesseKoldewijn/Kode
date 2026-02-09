@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { bridgedInvoke } from './ipc-bridge';
 
 export interface BufferInfo {
   id: string;
@@ -77,6 +78,11 @@ export interface HistoryState {
   canRedo: boolean;
 }
 
+export interface EditWithSelectionsResult {
+  version: number;
+  selections: SelectionSet;
+}
+
 export const editorEngine = {
   async openBuffer(path: string): Promise<BufferInfo> {
     console.log('[EditorEngine] openBuffer START:', path);
@@ -99,15 +105,31 @@ export const editorEngine = {
     startLine: number,
     endLine: number
   ): Promise<ViewportHighlights> {
-    return await invoke('get_highlights', { bufferId, startLine, endLine });
+    // Use IPC bridge with cancellable flag (deduplicate rapid scrolling)
+    return await bridgedInvoke(
+      'get_highlights',
+      { bufferId, startLine, endLine },
+      { cancellable: true }
+    );
   },
 
   async editBuffer(bufferId: string, edit: EditOperation): Promise<EditResult> {
-    return await invoke('edit_buffer', { bufferId, edit });
+    // Use IPC bridge for better performance
+    return await bridgedInvoke('edit_buffer', { bufferId, edit });
+  },
+
+  async editBufferWithSelections(
+    bufferId: string,
+    edit: EditOperation,
+    selections: Selection[]
+  ): Promise<EditWithSelectionsResult> {
+    // Use IPC bridge with batching support
+    return await bridgedInvoke('edit_buffer_with_selections', { bufferId, edit, selections });
   },
 
   async setSelections(bufferId: string, selections: Selection[]): Promise<SelectionSet> {
-    return await invoke('set_selections', { bufferId, selections });
+    // Use IPC bridge for better performance
+    return await bridgedInvoke('set_selections', { bufferId, selections });
   },
 
   async getSelections(bufferId: string): Promise<SelectionSet> {

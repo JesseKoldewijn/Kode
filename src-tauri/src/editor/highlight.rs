@@ -1,7 +1,9 @@
 use crate::editor::buffer::Buffer;
-use crate::editor::languages::{get_highlight_query, get_language};
+use crate::editor::languages::{get_highlight_query, get_language, LanguageId};
+use lazy_static::lazy_static;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
 
 #[derive(Serialize, Clone, Debug)]
@@ -29,6 +31,63 @@ pub struct ViewportHighlights {
     pub total_lines: u32,
 }
 
+// Highlight names recognized by tree-sitter
+const HIGHLIGHT_NAMES: &[&str] = &[
+    "keyword",
+    "string",
+    "comment",
+    "function",
+    "variable",
+    "number",
+    "type",
+    "constant",
+    "operator",
+    "property",
+    "attribute",
+    "tag",
+    "punctuation",
+];
+
+lazy_static! {
+    // Cache HighlightConfiguration per language to avoid recompiling queries on every highlight request
+    static ref HIGHLIGHT_CONFIG_CACHE: Mutex<HashMap<LanguageId, Arc<HighlightConfiguration>>> =
+        Mutex::new(HashMap::new());
+}
+
+/// Get or create cached HighlightConfiguration for a language
+fn get_highlight_config(language_id: LanguageId) -> Option<Arc<HighlightConfiguration>> {
+    // Try to get from cache first
+    {
+        let cache = HIGHLIGHT_CONFIG_CACHE.lock().unwrap();
+        if let Some(config) = cache.get(&language_id) {
+            return Some(Arc::clone(config));
+        }
+    }
+
+    // Not in cache, create new config
+    let lang = get_language(language_id)?;
+    let mut config = match HighlightConfiguration::new(
+        lang,
+        "syntax",
+        get_highlight_query(language_id),
+        "", // injection
+        "", // locals
+    ) {
+        Ok(c) => c,
+        Err(_) => return None,
+    };
+
+    // Configure highlight names
+    config.configure(HIGHLIGHT_NAMES);
+
+    // Cache and return
+    let config_arc = Arc::new(config);
+    let mut cache = HIGHLIGHT_CONFIG_CACHE.lock().unwrap();
+    cache.insert(language_id, Arc::clone(&config_arc));
+
+    Some(config_arc)
+}
+
 pub fn get_viewport_highlights(
     buffer: &Buffer,
     start_line: u32,
@@ -37,28 +96,13 @@ pub fn get_viewport_highlights(
     let mut lines = Vec::new();
     let total_lines = buffer.rope.len_lines() as u32;
 
-    let highlight_names = [
-        "keyword",
-        "string",
-        "comment",
-        "function",
-        "variable",
-        "number",
-        "type",
-        "constant",
-        "operator",
-        "property",
-        "attribute",
-        "tag",
-        "punctuation",
-    ];
-
     let mut highlighter = Highlighter::new();
 
-    let lang = match get_language(buffer.language) {
-        Some(l) => l,
+    // Get cached highlight config for this language
+    let config = match get_highlight_config(buffer.language) {
+        Some(c) => c,
         None => {
-            // Return plaintext if no language
+            // Return plaintext if no language config available
             for i in start_line..std::cmp::min(end_line, total_lines) {
                 let line = buffer.rope.line(i as usize);
                 lines.push(HighlightedLine {
@@ -75,36 +119,6 @@ pub fn get_viewport_highlights(
             };
         }
     };
-
-    let mut config = match HighlightConfiguration::new(
-        lang,
-        "syntax",
-        get_highlight_query(buffer.language),
-        "", // injection
-        "", // locals
-    ) {
-        Ok(c) => c,
-        Err(_) => {
-            // If highlight config fails, return plaintext
-            for i in start_line..std::cmp::min(end_line, total_lines) {
-                let line = buffer.rope.line(i as usize);
-                lines.push(HighlightedLine {
-                    line_number: i,
-                    text: line.to_string(),
-                    spans: Vec::new(),
-                });
-            }
-            return ViewportHighlights {
-                buffer_id: buffer.id.clone(),
-                version: buffer.version,
-                lines,
-                total_lines,
-            };
-        }
-    };
-
-    // Set recognition names
-    config.configure(&highlight_names);
 
     // Get highlights for the range
     let start_byte = buffer.rope.line_to_byte(start_line as usize);
@@ -114,29 +128,33 @@ pub fn get_viewport_highlights(
         buffer.rope.line_to_byte(end_line as usize)
     };
 
-    let source_bytes: Vec<u8> = buffer.rope.bytes().collect();
+    // Only collect bytes for the viewport range (not the entire file)
+    let source_bytes: Vec<u8> = buffer
+        .rope
+        .byte_slice(start_byte..end_byte)
+        .bytes()
+        .collect();
 
-    let highlights =
-        match highlighter.highlight(&config, &source_bytes[start_byte..end_byte], None, |_| None) {
-            Ok(h) => h,
-            Err(_) => {
-                // If highlighting fails, return plaintext
-                for i in start_line..std::cmp::min(end_line, total_lines) {
-                    let line = buffer.rope.line(i as usize);
-                    lines.push(HighlightedLine {
-                        line_number: i,
-                        text: line.to_string(),
-                        spans: Vec::new(),
-                    });
-                }
-                return ViewportHighlights {
-                    buffer_id: buffer.id.clone(),
-                    version: buffer.version,
-                    lines,
-                    total_lines,
-                };
+    let highlights = match highlighter.highlight(&config, &source_bytes[..], None, |_| None) {
+        Ok(h) => h,
+        Err(_) => {
+            // If highlighting fails, return plaintext
+            for i in start_line..std::cmp::min(end_line, total_lines) {
+                let line = buffer.rope.line(i as usize);
+                lines.push(HighlightedLine {
+                    line_number: i,
+                    text: line.to_string(),
+                    spans: Vec::new(),
+                });
             }
-        };
+            return ViewportHighlights {
+                buffer_id: buffer.id.clone(),
+                version: buffer.version,
+                lines,
+                total_lines,
+            };
+        }
+    };
 
     // Build a line-based structure
     let mut line_map: HashMap<u32, (String, Vec<HighlightSpan>)> = HashMap::new();
@@ -159,7 +177,7 @@ pub fn get_viewport_highlights(
 
                 // If we have an active highlight, create a span
                 if let Some(&(scope_idx, span_start)) = highlight_stack.last() {
-                    let scope = highlight_names[scope_idx].to_string();
+                    let scope = HIGHLIGHT_NAMES[scope_idx].to_string();
 
                     // Convert byte positions to line/col
                     let start_line_idx = buffer.rope.byte_to_line(span_start.max(absolute_start));

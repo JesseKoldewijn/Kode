@@ -9,8 +9,6 @@ export component RustEditor(props: {
   file: OpenFile | null;
   onContentChange: (id: string, content: string) => void;
 }) {
-  console.log('[RustEditor] Component render', { fileId: props.file?.id, hasFile: !!props.file });
-  
   let scrollTop = track(0);
   let containerHeight = track(0);
   let container = track<HTMLDivElement | null>(null);
@@ -20,48 +18,29 @@ export component RustEditor(props: {
   let serverVersion = track(0);
   let pendingEdits = track(0);
   let currentFileId = track<string | null>(null);
+  let mouseMoveThrottleTimer: number | null = null;
 
   // Initialize/reset local content when file changes
   effect(() => {
-    console.log('[RustEditor] File change effect START', { 
-      hasFile: !!props.file, 
-      fileId: props.file?.id,
-      currentFileId: @currentFileId,
-      contentLength: props.file?.content?.length
-    });
-    
     if (props.file) {
       // Only update if file actually changed
       if (@currentFileId !== props.file.id) {
-        console.log('[RustEditor] File changed - initializing local state');
         @localContent = props.file.content;
         @serverVersion = 0;
         @pendingEdits = 0;
         @scrollTop = 0;
         @selections = [{ anchorLine: 0, anchorCol: 0, headLine: 0, headCol: 0 }];
         @currentFileId = props.file.id;
-        console.log('[RustEditor] File initialization COMPLETE');
-      } else {
-        console.log('[RustEditor] Same file - skipping initialization');
       }
     } else {
-      console.log('[RustEditor] No file - clearing state');
       @localContent = null;
       @currentFileId = null;
     }
-    
-    console.log('[RustEditor] File change effect END');
   });
 
   // Scroll to cursor when selection changes
   effect(() => {
-    console.log('[RustEditor] Scroll effect START', {
-      selectionsLength: @selections.length,
-      hasContainer: !!@container
-    });
-    
     if (@selections.length === 0 || !@container) {
-      console.log('[RustEditor] Scroll effect SKIP (no selections or container)');
       return;
     }
     
@@ -69,7 +48,6 @@ export component RustEditor(props: {
     const cursorLine = currentSel.headLine;
     const lineHeight = 20;
     
-    console.log('[RustEditor] Updating cursor position', { cursorLine, headCol: currentSel.headCol });
     // Update status bar cursor position (1-indexed for display)
     setCursorPosition(cursorLine + 1, currentSel.headCol + 1);
     
@@ -80,16 +58,12 @@ export component RustEditor(props: {
     
     // Scroll if cursor is outside viewport
     if (cursorTop < viewportTop) {
-      console.log('[RustEditor] Scrolling up to cursor');
       // Cursor is above viewport - scroll up
       @container.scrollTop = cursorTop;
     } else if (cursorBottom > viewportBottom) {
-      console.log('[RustEditor] Scrolling down to cursor');
       // Cursor is below viewport - scroll down
       @container.scrollTop = cursorBottom - @containerHeight;
     }
-    
-    console.log('[RustEditor] Scroll effect END');
   });
 
   const onScroll = (e: Event) => {
@@ -161,11 +135,10 @@ export component RustEditor(props: {
     };
     @selections = [newSelection];
     
-    // Send to backend
+    // Send to backend (combined edit + selection update in one IPC call)
     try {
-      const result = await editorEngine.editBuffer(props.file.id, { range, newText: text });
+      const result = await editorEngine.editBufferWithSelections(props.file.id, { range, newText: text }, [newSelection]);
       @serverVersion = result.version;
-      await editorEngine.setSelections(props.file.id, [newSelection]);
     } catch (err) {
       console.error('Edit failed:', err);
     } finally {
@@ -212,9 +185,8 @@ export component RustEditor(props: {
         @selections = [newSelection];
         
         try {
-          const result = await editorEngine.editBuffer(props.file.id, { range, newText: '' });
+          const result = await editorEngine.editBufferWithSelections(props.file.id, { range, newText: '' }, [newSelection]);
           @serverVersion = result.version;
-          await editorEngine.setSelections(props.file.id, [newSelection]);
         } finally {
           @pendingEdits--;
         }
@@ -239,9 +211,8 @@ export component RustEditor(props: {
         @selections = [newSelection];
         
         try {
-          const result = await editorEngine.editBuffer(props.file.id, { range, newText: '' });
+          const result = await editorEngine.editBufferWithSelections(props.file.id, { range, newText: '' }, [newSelection]);
           @serverVersion = result.version;
-          await editorEngine.setSelections(props.file.id, [newSelection]);
         } finally {
           @pendingEdits--;
         }
@@ -267,9 +238,8 @@ export component RustEditor(props: {
         @selections = [newSelection];
         
         try {
-          const result = await editorEngine.editBuffer(props.file.id, { range, newText: '' });
+          const result = await editorEngine.editBufferWithSelections(props.file.id, { range, newText: '' }, [newSelection]);
           @serverVersion = result.version;
-          await editorEngine.setSelections(props.file.id, [newSelection]);
         } finally {
           @pendingEdits--;
         }
@@ -306,9 +276,8 @@ export component RustEditor(props: {
         @selections = [newSelection];
         
         try {
-          const result = await editorEngine.editBuffer(props.file.id, { range, newText: '' });
+          const result = await editorEngine.editBufferWithSelections(props.file.id, { range, newText: '' }, [newSelection]);
           @serverVersion = result.version;
-          await editorEngine.setSelections(props.file.id, [newSelection]);
         } finally {
           @pendingEdits--;
         }
@@ -334,9 +303,8 @@ export component RustEditor(props: {
         @selections = [newSelection];
         
         try {
-          const result = await editorEngine.editBuffer(props.file.id, { range, newText: '' });
+          const result = await editorEngine.editBufferWithSelections(props.file.id, { range, newText: '' }, [newSelection]);
           @serverVersion = result.version;
-          await editorEngine.setSelections(props.file.id, [newSelection]);
         } finally {
           @pendingEdits--;
         }
@@ -362,9 +330,8 @@ export component RustEditor(props: {
         @selections = [newSelection];
         
         try {
-          const result = await editorEngine.editBuffer(props.file.id, { range, newText: '' });
+          const result = await editorEngine.editBufferWithSelections(props.file.id, { range, newText: '' }, [newSelection]);
           @serverVersion = result.version;
-          await editorEngine.setSelections(props.file.id, [newSelection]);
         } finally {
           @pendingEdits--;
         }
@@ -536,8 +503,16 @@ export component RustEditor(props: {
     };
     @selections = [updatedSelection];
     
+    // Throttle IPC calls to every 16ms (one frame)
     if (props.file) {
-      editorEngine.setSelections(props.file.id, [updatedSelection]).catch(console.error);
+      if (mouseMoveThrottleTimer === null) {
+        mouseMoveThrottleTimer = setTimeout(() => {
+          if (props.file) {
+            editorEngine.setSelections(props.file.id, @selections).catch(console.error);
+          }
+          mouseMoveThrottleTimer = null;
+        }, 16) as unknown as number;
+      }
     }
   };
 
@@ -554,22 +529,13 @@ export component RustEditor(props: {
 
   // Add global mouse up listener
   effect(() => {
-    console.log('[RustEditor] Global mouseup effect START');
     const onGlobalMouseUp = () => {
       @isMouseDown = false;
     };
     window.addEventListener('mouseup', onGlobalMouseUp);
-    console.log('[RustEditor] Global mouseup listener added');
     return () => {
-      console.log('[RustEditor] Global mouseup listener cleanup');
       window.removeEventListener('mouseup', onGlobalMouseUp);
     };
-  });
-
-  console.log('[RustEditor] Rendering template', { 
-    fileId: props.file?.id,
-    hasLocalContent: !!@localContent,
-    localContentLength: @localContent?.length
   });
 
   <div 

@@ -105,7 +105,7 @@ export component EditorLine(props: {
       }
       
       <div class="relative z-10">
-        for (const segment of textSegments; key segment.text + (segment.scope || '')) {
+        for (const segment of textSegments; key `${props.lineNum}-${textSegments.indexOf(segment)}`) {
           if (segment.scope) {
             <span class={`token-${segment.scope}`}>{segment.text}</span>
           } else {

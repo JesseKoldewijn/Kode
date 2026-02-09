@@ -224,6 +224,7 @@ pub fn run() {
             commands::editor::close_buffer,
             commands::editor::get_highlights,
             commands::editor::edit_buffer,
+            commands::editor::edit_buffer_with_selections,
             commands::editor::set_selections,
             commands::editor::get_selections,
             commands::editor::undo_buffer,

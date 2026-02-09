@@ -1,5 +1,5 @@
 import { track, effect } from 'ripple';
-import { editorEngine, type ViewportHighlights, type Selection } from '../../lib/editor-engine';
+import { editorEngine, type ViewportHighlights, type Selection, type HighlightedLine } from '../../lib/editor-engine';
 import { EditorLine } from './EditorLine.ripple';
 
 export component EditorViewport(props: {
@@ -13,38 +13,35 @@ export component EditorViewport(props: {
   onMouseMove: (line: number, col: number) => void;
   onMouseUp: () => void;
 }) {
-  console.log('[EditorViewport] Component render', { bufferId: props.bufferId, hasContent: !!props.content });
-  
   let highlights = track<ViewportHighlights | null>(null);
+  let highlightMap = track<Map<number, HighlightedLine>>(new Map());
   let cachedLines = track<string[]>([]);
   let lastBufferId = track<string | null>(null);
   let highlightFetchTimer: number | null = null; // NOT tracked - just a regular variable
 
   // Cache split lines to avoid repeated splits
   effect(() => {
-    console.log('[EditorViewport] Cache lines effect START', { 
-      hasContent: !!props.content, 
-      contentLength: props.content?.length 
-    });
-    
     if (props.content) {
       @cachedLines = props.content.split('\n');
-      console.log('[EditorViewport] Lines cached:', @cachedLines.length);
     } else {
       @cachedLines = [];
-      console.log('[EditorViewport] No content - cleared cached lines');
     }
+  });
+
+  // Build highlight map for O(1) lookups
+  effect(() => {
+    const map = new Map<number, HighlightedLine>();
+    if (@highlights?.lines) {
+      for (const line of @highlights.lines) {
+        map.set(line.lineNumber, line);
+      }
+    }
+    @highlightMap = map;
   });
 
   // Reset highlights when buffer changes
   effect(() => {
-    console.log('[EditorViewport] Buffer change effect', { 
-      newBufferId: props.bufferId, 
-      lastBufferId: @lastBufferId 
-    });
-    
     if (props.bufferId !== @lastBufferId) {
-      console.log('[EditorViewport] Buffer changed - clearing highlights');
       @highlights = null;
       @lastBufferId = props.bufferId;
     }
@@ -52,10 +49,7 @@ export component EditorViewport(props: {
 
   // Debounced highlight fetching
   effect(() => {
-    console.log('[EditorViewport] Highlight fetch effect START', { bufferId: props.bufferId });
-    
     if (!props.bufferId) {
-      console.log('[EditorViewport] No bufferId - clearing highlights');
       @highlights = null;
       return;
     }
@@ -68,17 +62,14 @@ export component EditorViewport(props: {
     const startLine = Math.floor(props.scrollTop / props.lineHeight);
     const endLine = startLine + Math.ceil(props.viewportHeight / props.lineHeight) + 1;
 
-    console.log('[EditorViewport] Setting highlight fetch timer', { startLine, endLine });
-    // Debounce by 16ms (one frame) to avoid fetching on every scroll event
+    // Debounce by 50ms to reduce highlight fetches during rapid changes
     highlightFetchTimer = setTimeout(() => {
-      console.log('[EditorViewport] Fetching highlights from Rust', { bufferId: props.bufferId, startLine, endLine });
       editorEngine.getHighlights(props.bufferId!, startLine, endLine).then((data) => {
-        console.log('[EditorViewport] Highlights received', { linesCount: data.lines.length });
         @highlights = data;
       }).catch((err) => {
         console.error('[EditorViewport] Failed to fetch highlights:', err);
       });
-    }, 16) as unknown as number;
+    }, 50) as unknown as number;
   });
 
   const totalHeight = @cachedLines.length * props.lineHeight;
@@ -89,9 +80,8 @@ export component EditorViewport(props: {
     if (@cachedLines.length > 0) {
       return @cachedLines[lineNum] || '';
     }
-    if (@highlights) {
-      const line = @highlights.lines.find(l => l.lineNumber === lineNum);
-      return line?.text || '';
+    if (@highlightMap.has(lineNum)) {
+      return @highlightMap.get(lineNum)!.text;
     }
     return '';
   };
@@ -148,7 +138,7 @@ export component EditorViewport(props: {
           <EditorLine 
             lineNum={lineNum}
             lineText={getLineText(lineNum)}
-            highlightLine={@highlights?.lines.find(l => l.lineNumber === lineNum)}
+            highlightLine={@highlightMap.get(lineNum) || null}
             selections={props.selections}
             onMouseDown={handleLineMouseDown}
             onMouseMove={handleLineMouseMove}
