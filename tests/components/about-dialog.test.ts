@@ -93,8 +93,8 @@ describe('AboutDialog', () => {
       props: { isOpen: true, onClose },
     });
 
-    expect(container.textContent).toContain('About Kode');
-    expect(container.textContent).toContain('Kode');
+    expect(container.textContent).toContain('About JereKode');
+    expect(container.textContent).toContain('JereKode');
     expect(container.textContent).toContain('Version 0.0.1');
   });
 
@@ -109,7 +109,6 @@ describe('AboutDialog', () => {
     expect(container.textContent).toContain('Rust');
     expect(container.textContent).toContain('Ripple');
     expect(container.textContent).toContain('TypeScript');
-    expect(container.textContent).toContain('CodeMirror 6');
     expect(container.textContent).toContain('xterm.js');
   });
 });

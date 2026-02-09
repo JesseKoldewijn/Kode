@@ -8,7 +8,7 @@ A performant, open-source desktop code editor with integrated AI chat support fo
 
 ## Features
 
-- **Modern Code Editing** - Powered by Monaco Editor (VS Code's editor engine) with full IntelliSense for JavaScript/TypeScript
+- **Modern Code Editing** - Custom Rust-based editor with tree-sitter syntax highlighting and rope data structure
 - **AI Chat Integration** - Built-in chat panel for interacting with CLI code agents like OpenCode
 - **Syntax Highlighting** - Support for JS/TS, JSON, Markdown, CSS, HTML, Rust, Python, YAML, and more
 - **File System Navigation** - Intuitive sidebar with file tree explorer
@@ -64,7 +64,6 @@ Opens at `http://localhost:1420` with mock filesystem for testing UI.
 
 - [Ripple](https://ripple-ts.com) - TypeScript-first reactive UI framework
 - [TailwindCSS](https://tailwindcss.com) v4 - Utility-first CSS
-- [Monaco Editor](https://microsoft.github.io/monaco-editor/) - Code editor engine
 - [xterm.js](https://xtermjs.org) - Terminal emulator
 - [Vite](https://vitejs.dev) (rolldown-vite) - Build tool
 
@@ -130,10 +129,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-- [Monaco Editor](https://microsoft.github.io/monaco-editor/) - The code editor engine that powers VS Code
 - [Tauri](https://tauri.app) - For enabling lightweight desktop applications with web technologies
 - [Ripple](https://ripple-ts.com) - For the reactive UI framework
 - [xterm.js](https://xtermjs.org) - For the terminal emulator
+- [tree-sitter](https://tree-sitter.github.io/tree-sitter/) - For syntax parsing
+- [ropey](https://github.com/cessen/ropey) - For efficient text rope data structure
 
 ---
 

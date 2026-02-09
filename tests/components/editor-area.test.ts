@@ -62,7 +62,7 @@ describe('EditorArea', () => {
       expect(editorArea?.textContent).toContain('No file is open');
     });
 
-    it('renders CodeEditor when file is active', async () => {
+    it('renders editor when file is active', async () => {
       const { EditorArea } = await import('../../src/components/layout/EditorArea.ripple');
 
       // Add file to workspace

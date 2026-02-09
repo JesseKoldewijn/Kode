@@ -8,7 +8,7 @@ This document provides AI coding assistants with comprehensive context about the
 
 ### Key Features
 
-- Modern code editing with Monaco Editor (VS Code's editor, full IntelliSense for JS/TS)
+- Modern code editing with custom Rust-based editor (tree-sitter syntax highlighting, rope data structure)
 - Syntax highlighting for JS/TS, JSON, Markdown, CSS, HTML, Rust, Python, YAML, and more
 - Integrated AI chat panel for interacting with CLI code agents (like OpenCode)
 - File system navigation with sidebar file tree
@@ -20,15 +20,13 @@ This document provides AI coding assistants with comprehensive context about the
 
 ### Frontend
 
-| Technology                    | Version | Purpose                                                     |
-| ----------------------------- | ------- | ----------------------------------------------------------- |
-| Ripple                        | latest  | TypeScript-first reactive UI framework (`.ripple` files)    |
-| TailwindCSS                   | v4      | CSS-based utility styling                                   |
-| Vite (rolldown-vite)          | latest  | Build tool                                                  |
-| Monaco Editor                 | latest  | Code editor (VS Code's editor engine)                       |
-| vite-plugin-monaco-editor-esm | 2.0.2   | Monaco Editor Vite integration (ESM, Node.js 25 compatible) |
-| xterm.js                      | v5      | Terminal emulator                                           |
-| TypeScript                    | ^5.7    | Language                                                    |
+| Technology           | Version | Purpose                                                  |
+| -------------------- | ------- | -------------------------------------------------------- |
+| Ripple               | latest  | TypeScript-first reactive UI framework (`.ripple` files) |
+| TailwindCSS          | v4      | CSS-based utility styling                                |
+| Vite (rolldown-vite) | latest  | Build tool                                               |
+| xterm.js             | v5      | Terminal emulator                                        |
+| TypeScript           | ^5.7    | Language                                                 |
 
 ### Backend (Tauri/Rust)
 
@@ -53,7 +51,7 @@ Kode/
 ├── src/                        # Frontend source code
 │   ├── components/             # UI components (.ripple files)
 │   │   ├── chat/              # AI chat panel (ChatPanel, ChatInput, ChatMessage)
-│   │   ├── editor/            # Code editor (CodeEditor, EditorTabs)
+│   │   ├── editor/            # Code editor (RustEditor, EditorTabs)
 │   │   ├── filetree/          # File explorer (FileTree, FileNode)
 │   │   ├── layout/            # Layout components (Sidebar, EditorArea, Panel, StatusBar)
 │   │   ├── palette/           # Command palette
@@ -62,8 +60,7 @@ Kode/
 │   │   ├── mocks/             # Browser mock system for dev without Tauri
 │   │   ├── tauri.ts           # Tauri API wrapper functions
 │   │   ├── workspace.ts       # Workspace/file state management
-│   │   ├── theme.ts           # Theme management
-│   │   └── monaco-theme.ts    # Monaco Editor theme definitions
+│   │   └── theme.ts           # Theme management
 │   ├── styles/                # Global styles (global.css with Tailwind)
 │   ├── App.ripple             # Main application component
 │   └── main.ts                # Application entry point
@@ -374,7 +371,6 @@ Tests mock Tauri APIs via `tests/setup.ts`. The mock system intercepts:
 - `@tauri-apps/plugin-store` (persistent storage)
 - `@tauri-apps/plugin-log` (logging)
 - `@tauri-apps/plugin-process` (exit, relaunch)
-- `monaco-editor` (editor instance creation, theme management)
 
 ## Key Patterns
 
@@ -434,7 +430,7 @@ The `.agents/skills/` directory contains specialized skill definitions for AI as
 
 ### Test Status
 
-- **Unit/Integration Tests**: 512/512 passing ✅ (includes 33 Monaco Editor tests)
+- **Unit/Integration Tests**: 512/512 passing ✅
 - **E2E Tests**: 28/28 total (22 passing, 6 A11y tests have known issues)
 - **Build**: Production build successful ✅
 - **Dev Server**: Starts without errors ✅

@@ -194,7 +194,7 @@ export component EditorArea() {
           <SettingsPage initialTab={getSettingsInitialTab()} />
         </div>
       } else if (@activeFile && !isSpecialTab(@activeFile)) {
-        <div class="absolute inset-0">
+        <div class="absolute inset-0" data-testid="editor-container">
           <RustEditor
             file={@activeFile}
             onContentChange={handleContentChange}

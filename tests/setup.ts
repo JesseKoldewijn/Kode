@@ -13,6 +13,10 @@ vi.mock('@tauri-apps/api/core', () => ({
         return Promise.resolve([]);
       case 'get_git_status':
         return Promise.resolve({});
+      case 'read_file':
+        return Promise.resolve('test content');
+      case 'write_file':
+        return Promise.resolve(undefined);
       default:
         return Promise.resolve(null);
     }
@@ -147,74 +151,3 @@ class MockIntersectionObserver {
   disconnect = vi.fn();
 }
 global.IntersectionObserver = MockIntersectionObserver as unknown as typeof IntersectionObserver;
-
-// Mock Monaco Editor
-const createMockEditor = () => {
-  const disposables: Array<{ dispose: () => void }> = [];
-  const mockModel = {
-    getValue: vi.fn().mockReturnValue(''),
-    setValue: vi.fn(),
-    getLineCount: vi.fn().mockReturnValue(1),
-    getLineContent: vi.fn().mockReturnValue(''),
-    getFullModelRange: vi.fn().mockReturnValue({
-      startLineNumber: 1,
-      startColumn: 1,
-      endLineNumber: 1,
-      endColumn: 1,
-    }),
-    onDidChangeContent: vi.fn().mockReturnValue({ dispose: vi.fn() }),
-    dispose: vi.fn(),
-  };
-
-  return {
-    getValue: vi.fn().mockReturnValue(''),
-    setValue: vi.fn(),
-    getModel: vi.fn().mockReturnValue(mockModel),
-    getPosition: vi.fn().mockReturnValue({ lineNumber: 1, column: 1 }),
-    setPosition: vi.fn(),
-    getScrollTop: vi.fn().mockReturnValue(0),
-    setScrollTop: vi.fn(),
-    setScrollPosition: vi.fn(),
-    revealLineInCenter: vi.fn(),
-    focus: vi.fn(),
-    layout: vi.fn(),
-    updateOptions: vi.fn(),
-    trigger: vi.fn(),
-    onDidChangeModelContent: vi.fn().mockImplementation((callback) => {
-      const disposable = { dispose: vi.fn() };
-      disposables.push(disposable);
-      return disposable;
-    }),
-    onDidChangeCursorPosition: vi.fn().mockImplementation((callback) => {
-      const disposable = { dispose: vi.fn() };
-      disposables.push(disposable);
-      return disposable;
-    }),
-    dispose: vi.fn().mockImplementation(() => {
-      disposables.forEach((d) => d.dispose());
-    }),
-  };
-};
-
-vi.mock('monaco-editor', () => ({
-  editor: {
-    create: vi.fn().mockImplementation(() => createMockEditor()),
-    defineTheme: vi.fn(),
-    setTheme: vi.fn(),
-    setModelLanguage: vi.fn(),
-  },
-  languages: {
-    typescript: {
-      typescriptDefaults: {
-        setDiagnosticsOptions: vi.fn(),
-        setCompilerOptions: vi.fn(),
-      },
-      javascriptDefaults: {
-        setDiagnosticsOptions: vi.fn(),
-        setCompilerOptions: vi.fn(),
-      },
-    },
-    register: vi.fn(),
-    setMonarchTokensProvider: vi.fn(),
-  },
-}));
