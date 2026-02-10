@@ -1,4 +1,4 @@
-import { track, effect, flushSync } from 'ripple';
+import { track, effect } from 'ripple';
 import { StatusBar } from './components/layout/StatusBar.ripple';
 import { Sidebar } from './components/layout/Sidebar.ripple';
 import { Panel } from './components/layout/Panel.ripple';
@@ -22,6 +22,7 @@ import {
   openFolderDialog,
   saveFileAs,
 } from './lib/workspace';
+import type { OpenFile } from './lib/workspace';
 import {
   initKeybindingManager,
   loadKeybindingSettings,
@@ -55,6 +56,16 @@ export component App() {
   let isPanelVisible = track(true);
   let keybindingManager = track<KeybindingManager | null>(null);
   let isAboutOpen = track(false);
+
+  // Active file state at App level; sync from custom event (workspace dispatches in rAF so handler runs next frame).
+  let activeFile = track<OpenFile | null>(getActiveFile());
+  effect(() => {
+    const handler = () => {
+      @activeFile = getActiveFile();
+    };
+    window.addEventListener('workspace-active-file-changed', handler);
+    return () => window.removeEventListener('workspace-active-file-changed', handler);
+  });
 
   // Panel sizes (tracked for reactivity)
   let sidebarWidth = track(240);
@@ -377,7 +388,7 @@ export component App() {
 
       <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
         <main class="flex-1 min-h-0 overflow-hidden bg-editor-bg">
-          <EditorArea />
+          <EditorArea activeFile={@activeFile} />
         </main>
 
         if (@isPanelVisible) {

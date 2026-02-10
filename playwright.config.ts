@@ -15,11 +15,8 @@ export default defineConfig({
   ],
   use: {
     baseURL: 'http://localhost:1420',
-    // Capture trace on first retry for debugging
-    trace: 'on-first-retry',
-    // Screenshot on failure
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    // Video on retry
     video: 'retain-on-failure',
   },
   projects: [
@@ -28,11 +25,13 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  // Start dev server before running tests
+  // Start dev server before running tests. Playwright starts it; reuses if already running.
   webServer: {
     command: 'yarn dev',
     url: 'http://localhost:1420',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: true,
     timeout: 120000,
+    stdout: 'pipe',
+    stderr: 'pipe',
   },
 });

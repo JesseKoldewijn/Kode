@@ -90,47 +90,62 @@ export component CommandPalette(props: {
     };
   });
 
-  // Filter logic: react to query changes
+  // Filter logic: react to query changes. Defer work to next frame so typing doesn't block the input.
   effect(() => {
     const q = @query;
+    let cancelled = false;
 
-    // Determine mode from prefix
-    if (q.startsWith('>')) {
-      @currentMode = 'commands';
-      updateCommandFilter(q.slice(1).trim());
-      return;
-    }
-
-    @currentMode = 'files';
-
-    // File search
-    const root = workspacePath;
-
-    if (@searchTimeout) {
-      clearTimeout(@searchTimeout);
-    }
-
-    if (!q.trim() || !root) {
-      @fileResults = [];
-      @selectedIndex = 0;
-      @resultCount = 0;
-      return;
-    }
-
-    @isSearching = true;
-
-    @searchTimeout = setTimeout(async () => {
-      try {
-        const searchResults = await fs.searchFiles(root, q, 20);
-        @fileResults = searchResults;
-        @selectedIndex = 0;
-        @resultCount = searchResults.length;
-      } catch (error) {
-        console.error('Search failed:', error);
-      } finally {
-        @isSearching = false;
+    const run = () => {
+      if (cancelled) return;
+      // Determine mode from prefix
+      if (q.startsWith('>')) {
+        @currentMode = 'commands';
+        updateCommandFilter(q.slice(1).trim());
+        return;
       }
-    }, 150) as unknown as number;
+
+      @currentMode = 'files';
+
+      const root = workspacePath;
+
+      if (@searchTimeout) {
+        clearTimeout(@searchTimeout);
+      }
+
+      if (!q.trim() || !root) {
+        @fileResults = [];
+        @selectedIndex = 0;
+        @resultCount = 0;
+        return;
+      }
+
+      @isSearching = true;
+
+      @searchTimeout = setTimeout(async () => {
+        if (cancelled) return;
+        try {
+          const searchResults = await fs.searchFiles(root, q, 20);
+          if (cancelled) return;
+          @fileResults = searchResults;
+          @selectedIndex = 0;
+          @resultCount = searchResults.length;
+        } catch (error) {
+          if (!cancelled) console.error('Search failed:', error);
+        } finally {
+          if (!cancelled) @isSearching = false;
+        }
+      }, 150) as unknown as number;
+    };
+
+    const rafId = requestAnimationFrame(run);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+      if (@searchTimeout) {
+        clearTimeout(@searchTimeout);
+        @searchTimeout = null;
+      }
+    };
   });
 
   const updateCommandFilter = (filter: string) => {
@@ -180,8 +195,14 @@ export component CommandPalette(props: {
   };
 
   const selectResult = (result: SearchResult) => {
-    openFile(result.path, result.name);
-    onClose();
+    openFile(result.path, result.name)
+      .then(() => {
+        onClose();
+      })
+      .catch((err) => {
+        console.error('[CommandPalette] openFile failed:', err);
+        onClose();
+      });
   };
 
   const selectCommand = (action: Action) => {
@@ -227,6 +248,7 @@ export component CommandPalette(props: {
 
   <div
     class={{ 'fixed inset-0 z-[500] flex justify-center pt-[15vh]': true, hidden: !@isOpen }}
+    data-testid="command-palette"
     onClick={(e: MouseEvent) => {
       if (e.target === e.currentTarget) onClose();
     }}

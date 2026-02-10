@@ -132,17 +132,30 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
-// Mock ResizeObserver
+// Mock ResizeObserver - allows tests to trigger resize via __triggerResizeObserver__(height)
+const resizeObserverEntries: { callback: ResizeObserverCallback; element: Element }[] = [];
 class MockResizeObserver {
   callback: ResizeObserverCallback;
   constructor(callback: ResizeObserverCallback) {
     this.callback = callback;
   }
-  observe = vi.fn();
+  observe = vi.fn((element: Element) => {
+    resizeObserverEntries.push({ callback: this.callback, element });
+  });
   unobserve = vi.fn();
-  disconnect = vi.fn();
+  disconnect = vi.fn(() => {
+    const idx = resizeObserverEntries.findIndex((e) => e.callback === this.callback);
+    if (idx !== -1) resizeObserverEntries.splice(idx, 1);
+  });
 }
 global.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver;
+(global as any).__triggerResizeObserver__ = (height: number) => {
+  const contentRect = { height, width: 800, top: 0, left: 0, bottom: height, right: 800, x: 0, y: 0, toJSON: () => ({}) };
+  resizeObserverEntries.forEach(({ callback, element }) => {
+    const entry = { contentRect, target: element } as ResizeObserverEntry;
+    callback([entry], {} as ResizeObserver);
+  });
+};
 
 // Mock IntersectionObserver
 class MockIntersectionObserver {

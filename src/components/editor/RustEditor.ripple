@@ -1,42 +1,107 @@
-import { track, effect } from 'ripple';
-import { editorEngine, type ViewportHighlights, type Selection } from '../../lib/editor-engine';
+import { track, effect, trackSplit } from 'ripple';
+import { editorEngine, type ViewportHighlights, type Selection, type FoldRange } from '../../lib/editor-engine';
 import { EditorViewport } from './EditorViewport.ripple';
 import { EditorInput } from './EditorInput.ripple';
+import { EditorMinimap } from './EditorMinimap.ripple';
+import { EditorOverlay } from './EditorOverlay.ripple';
+import { EditorGutter } from './EditorGutter.ripple';
 import type { OpenFile } from '../../lib/workspace';
-import { setCursorPosition } from '../../lib/workspace';
+import { setCursorPosition, getActiveFile } from '../../lib/workspace';
 
 export component RustEditor(props: {
   file: OpenFile | null;
   onContentChange: (id: string, content: string) => void;
 }) {
+  // Tracked file so we re-render when active file changes (parent prop may not trigger child re-render). Sync from event.
+  let file = track<OpenFile | null>(props.file ?? getActiveFile());
+  effect(() => {
+    const handler = () => {
+      @file = getActiveFile();
+    };
+    window.addEventListener('workspace-active-file-changed', handler);
+    return () => window.removeEventListener('workspace-active-file-changed', handler);
+  });
+
   let scrollTop = track(0);
   let containerHeight = track(0);
   let container = track<HTMLDivElement | null>(null);
   let selections = track<Selection[]>([{ anchorLine: 0, anchorCol: 0, headLine: 0, headCol: 0 }]);
   let isMouseDown = track(false);
-  let localContent = track<string | null>(null);
+  let localContent = track<string | null>(@file?.content ?? null);
   let serverVersion = track(0);
   let pendingEdits = track(0);
-  let currentFileId = track<string | null>(null);
+  let currentFileId = track<string | null>(@file?.id ?? null);
   let mouseMoveThrottleTimer: number | null = null;
+  let showFindOverlay = track(false);
+  let minimapTotalLines = track(1);
+  let minimapStartLine = track(0);
+  let minimapLineCount = track(0);
+  let foldRanges = track<FoldRange[] | null>(null);
+  let foldedStartLines = track<number[]>([]);
+  let wordWrap = track(false);
 
-  // Initialize/reset local content when file changes
+  // Initialize/reset local content when file changes (re-runs when @file changes)
   effect(() => {
-    if (props.file) {
-      // Only update if file actually changed
-      if (@currentFileId !== props.file.id) {
-        @localContent = props.file.content;
+    const currentFile = @file;
+    if (currentFile) {
+      if (@currentFileId !== currentFile.id) {
+        if (typeof window !== 'undefined' && (window as any).__DEBUG_EDITOR_AREA__) {
+          console.log('[RustEditor] syncing to file', { id: currentFile.id, name: currentFile.name });
+        }
+        @localContent = currentFile.content;
         @serverVersion = 0;
         @pendingEdits = 0;
         @scrollTop = 0;
         @selections = [{ anchorLine: 0, anchorCol: 0, headLine: 0, headCol: 0 }];
-        @currentFileId = props.file.id;
+        @currentFileId = currentFile.id;
+        @foldRanges = null;
+        @foldedStartLines = [];
       }
     } else {
       @localContent = null;
       @currentFileId = null;
     }
   });
+
+  // Load fold ranges when buffer is available
+  effect(() => {
+    const currentFile = @file;
+    if (!currentFile) {
+      @foldRanges = null;
+      @foldedStartLines = [];
+      return;
+    }
+
+    const bufferId = currentFile.id;
+    editorEngine
+      .getFoldRanges(bufferId)
+      .then((ranges) => {
+        @foldRanges = ranges;
+      })
+      .catch((err) => {
+        console.warn('[RustEditor] Failed to load fold ranges', err);
+      });
+  });
+
+  const toggleFoldAtLine = (line: number) => {
+    const current = new Set(@foldedStartLines);
+    if (current.has(line)) {
+      current.delete(line);
+    } else {
+      current.add(line);
+    }
+    @foldedStartLines = Array.from(current).sort((a, b) => a - b);
+  };
+
+  /** Sync local state to @file when tab switched (effect may not have run yet). */
+  const syncToCurrentFile = () => {
+    if (!@file || @currentFileId === @file.id) return;
+    @currentFileId = @file.id;
+    @localContent = @file.content;
+    @serverVersion = 0;
+    @pendingEdits = 0;
+    @selections = [{ anchorLine: 0, anchorCol: 0, headLine: 0, headCol: 0 }];
+  };
 
   // Scroll to cursor when selection changes
   effect(() => {
@@ -70,6 +135,42 @@ export component RustEditor(props: {
     @scrollTop = (e.target as HTMLDivElement).scrollTop;
   };
 
+  const jumpToLine = (line: number) => {
+    if (!@container) return;
+    const lineHeight = 20;
+    @container.scrollTop = line * lineHeight;
+  };
+
+  // Keep minimap metrics in sync with content and viewport
+  effect(() => {
+    const baseContent =
+      @file && @currentFileId === @file.id
+        ? (@localContent ?? @file.content ?? '')
+        : (@file ? @file.content ?? '' : '');
+
+    const total =
+      baseContent === '' ? 1 : baseContent.split('\n').length;
+    const start = Math.floor(@scrollTop / 20);
+    const count =
+      @containerHeight > 0 ? Math.ceil(@containerHeight / 20) : 0;
+
+    @minimapTotalLines = total;
+    @minimapStartLine = start;
+    @minimapLineCount = count;
+  });
+
+  // Subscribe to word wrap toggle action
+  effect(() => {
+    import('../../lib/keybindings').then(({ subscribeToAction }) => {
+      const unsubscribe = subscribeToAction('editor.toggleWordWrap', () => {
+        @wordWrap = !@wordWrap;
+      });
+      return () => {
+        unsubscribe();
+      };
+    });
+  });
+
   const applyLocalEdit = (range: { startLine: number; startCol: number; endLine: number; endCol: number }, newText: string) => {
     if (!@localContent) return;
 
@@ -90,14 +191,15 @@ export component RustEditor(props: {
     @localContent = beforeText + newText + afterFullText;
     
     // Notify parent of change
-    if (props.file) {
-      props.onContentChange(props.file.id, @localContent);
+    if (@file) {
+      props.onContentChange(@file.id, @localContent);
     }
   };
 
   const onInput = async (text: string) => {
-    if (!props.file || @selections.length === 0) return;
-    
+    if (!@file || @selections.length === 0) return;
+    syncToCurrentFile();
+
     const currentSel = @selections[0];
     const range = {
       startLine: Math.min(currentSel.anchorLine, currentSel.headLine),
@@ -137,7 +239,7 @@ export component RustEditor(props: {
     
     // Send to backend (combined edit + selection update in one IPC call)
     try {
-      const result = await editorEngine.editBufferWithSelections(props.file.id, { range, newText: text }, [newSelection]);
+      const result = await editorEngine.editBufferWithSelections(@file.id, { range, newText: text }, [newSelection]);
       @serverVersion = result.version;
     } catch (err) {
       console.error('Edit failed:', err);
@@ -147,13 +249,15 @@ export component RustEditor(props: {
   };
 
   const onKeyDown = async (e: KeyboardEvent) => {
-    if (!props.file || @selections.length === 0) return;
-    
+    if (!@file || @selections.length === 0) return;
+    syncToCurrentFile();
+
     const currentSel = @selections[0];
     let newSel: Selection | null = null;
     
-    // Get file content to calculate line lengths
-    const lines = (@localContent || props.file.content).split('\n');
+    // Get file content to calculate line lengths (match viewport: current file's content)
+    const content = @file && @currentFileId === @file.id ? (@localContent ?? @file.content) : (@file?.content ?? '');
+    const lines = (content || '').split('\n');
     const currentLineLength = currentSel.headLine < lines.length ? lines[currentSel.headLine].length : 0;
     
     // Handle Backspace
@@ -185,7 +289,7 @@ export component RustEditor(props: {
         @selections = [newSelection];
         
         try {
-          const result = await editorEngine.editBufferWithSelections(props.file.id, { range, newText: '' }, [newSelection]);
+          const result = await editorEngine.editBufferWithSelections(@file.id, { range, newText: '' }, [newSelection]);
           @serverVersion = result.version;
         } finally {
           @pendingEdits--;
@@ -211,7 +315,7 @@ export component RustEditor(props: {
         @selections = [newSelection];
         
         try {
-          const result = await editorEngine.editBufferWithSelections(props.file.id, { range, newText: '' }, [newSelection]);
+          const result = await editorEngine.editBufferWithSelections(@file.id, { range, newText: '' }, [newSelection]);
           @serverVersion = result.version;
         } finally {
           @pendingEdits--;
@@ -238,7 +342,7 @@ export component RustEditor(props: {
         @selections = [newSelection];
         
         try {
-          const result = await editorEngine.editBufferWithSelections(props.file.id, { range, newText: '' }, [newSelection]);
+          const result = await editorEngine.editBufferWithSelections(@file.id, { range, newText: '' }, [newSelection]);
           @serverVersion = result.version;
         } finally {
           @pendingEdits--;
@@ -276,7 +380,7 @@ export component RustEditor(props: {
         @selections = [newSelection];
         
         try {
-          const result = await editorEngine.editBufferWithSelections(props.file.id, { range, newText: '' }, [newSelection]);
+          const result = await editorEngine.editBufferWithSelections(@file.id, { range, newText: '' }, [newSelection]);
           @serverVersion = result.version;
         } finally {
           @pendingEdits--;
@@ -303,7 +407,7 @@ export component RustEditor(props: {
         @selections = [newSelection];
         
         try {
-          const result = await editorEngine.editBufferWithSelections(props.file.id, { range, newText: '' }, [newSelection]);
+          const result = await editorEngine.editBufferWithSelections(@file.id, { range, newText: '' }, [newSelection]);
           @serverVersion = result.version;
         } finally {
           @pendingEdits--;
@@ -330,7 +434,7 @@ export component RustEditor(props: {
         @selections = [newSelection];
         
         try {
-          const result = await editorEngine.editBufferWithSelections(props.file.id, { range, newText: '' }, [newSelection]);
+          const result = await editorEngine.editBufferWithSelections(@file.id, { range, newText: '' }, [newSelection]);
           @serverVersion = result.version;
         } finally {
           @pendingEdits--;
@@ -346,16 +450,23 @@ export component RustEditor(props: {
       return;
     }
     
+    // Handle find overlay (Ctrl+F / Cmd+F)
+    if (e.key === 'f' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      @showFindOverlay = true;
+      return;
+    }
+
     // Handle Undo (Ctrl+Z / Cmd+Z)
     if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
       e.preventDefault();
       try {
-        const result = await editorEngine.undo(props.file.id);
+        const result = await editorEngine.undo(@file.id);
         if (result.success) {
           @localContent = result.content;
           @serverVersion = result.version;
           @selections = result.selections.selections;
-          props.onContentChange(props.file.id, result.content);
+          props.onContentChange(@file.id, result.content);
         }
       } catch (err) {
         console.error('Undo failed:', err);
@@ -368,12 +479,12 @@ export component RustEditor(props: {
         (e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey)) {
       e.preventDefault();
       try {
-        const result = await editorEngine.redo(props.file.id);
+        const result = await editorEngine.redo(@file.id);
         if (result.success) {
           @localContent = result.content;
           @serverVersion = result.version;
           @selections = result.selections.selections;
-          props.onContentChange(props.file.id, result.content);
+          props.onContentChange(@file.id, result.content);
         }
       } catch (err) {
         console.error('Redo failed:', err);
@@ -472,7 +583,7 @@ export component RustEditor(props: {
     
     if (newSel) {
       @selections = [newSel];
-      await editorEngine.setSelections(props.file.id, [newSel]);
+      await editorEngine.setSelections(@file.id, [newSel]);
     }
   };
 
@@ -486,8 +597,8 @@ export component RustEditor(props: {
     };
     @selections = [newSelection];
     
-    if (props.file) {
-      editorEngine.setSelections(props.file.id, [newSelection]).catch(console.error);
+    if (@file) {
+      editorEngine.setSelections(@file.id, [newSelection]).catch(console.error);
     }
   };
 
@@ -504,11 +615,11 @@ export component RustEditor(props: {
     @selections = [updatedSelection];
     
     // Throttle IPC calls to every 16ms (one frame)
-    if (props.file) {
+    if (@file) {
       if (mouseMoveThrottleTimer === null) {
         mouseMoveThrottleTimer = setTimeout(() => {
-          if (props.file) {
-            editorEngine.setSelections(props.file.id, @selections).catch(console.error);
+          if (@file) {
+            editorEngine.setSelections(@file.id, @selections).catch(console.error);
           }
           mouseMoveThrottleTimer = null;
         }, 16) as unknown as number;
@@ -527,6 +638,22 @@ export component RustEditor(props: {
     }
   };
 
+  // Keep container height in sync when window/panels resize
+  effect(() => {
+    const el = @container;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        @containerHeight = entry.contentRect.height;
+      }
+    });
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+    };
+  });
+
   // Add global mouse up listener
   effect(() => {
     const onGlobalMouseUp = () => {
@@ -539,21 +666,80 @@ export component RustEditor(props: {
   });
 
   <div 
-    {ref containerRef}
-    class="relative h-full w-full overflow-y-auto bg-[#1e1e1e] text-white"
-    onScroll={onScroll}
+    class="relative h-full w-full bg-[#1e1e1e] text-white"
   >
-    <EditorViewport 
-      bufferId={props.file?.id || null}
-      content={@localContent}
-      scrollTop={@scrollTop}
-      viewportHeight={@containerHeight}
-      lineHeight={20}
-      selections={@selections}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
+    <div
+      {ref containerRef}
+      class="relative h-full w-full overflow-y-auto"
+      onScroll={onScroll}
+    >
+      <div style={{ height: @minimapTotalLines * 20 + 'px' }} aria-hidden="true" />
+      <div
+        class="absolute left-0 top-0 right-0 flex w-full"
+        style={{ height: (@containerHeight || 400) + 'px' }}
+      >
+        <div class="flex-shrink-0">
+          <EditorGutter
+            totalLines={@minimapTotalLines}
+            viewportStartLine={Math.floor(@scrollTop / 20)}
+            viewportLineCount={@minimapLineCount}
+            activeLine={@selections.length > 0 ? @selections[0].headLine : 0}
+            foldRanges={@foldRanges}
+            foldedStartLines={@foldedStartLines}
+            onToggleFold={toggleFoldAtLine}
+          />
+        </div>
+        <div class="flex-1 min-w-0" data-editor-buffer-id={@file?.id ?? ''}>
+          for (const fid of [@file?.id ?? '']; key fid) {
+            <EditorViewport
+              bufferId={@file?.id ?? null}
+              content={(@file && @currentFileId === @file.id ? (@localContent ?? @file.content) : @file?.content) ?? null}
+              scrollTop={@scrollTop}
+              viewportHeight={@containerHeight || 400}
+              lineHeight={20}
+              selections={@selections}
+              foldRanges={@foldRanges}
+              foldedStartLines={@foldedStartLines}
+              wordWrap={@wordWrap}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+            />
+          }
+        </div>
+      </div>
+      <EditorInput onInput={onInput} onKeyDown={onKeyDown} />
+    </div>
+
+    <div class="pointer-events-none absolute right-2 top-2 bottom-2 flex flex-col items-end gap-2">
+      <div class="pointer-events-auto" data-testid="editor-minimap">
+        <EditorMinimap
+          totalLines={@minimapTotalLines}
+          viewportStartLine={@minimapStartLine}
+          viewportLineCount={@minimapLineCount}
+          onJumpToLine={jumpToLine}
+        />
+      </div>
+    </div>
+
+    <EditorOverlay
+      bufferId={@file?.id || null}
+      visible={@showFindOverlay}
+      onClose={() => {
+        @showFindOverlay = false;
+      }}
+      onGoToMatch={(line: number, col: number) => {
+        const newSelection: Selection = {
+          anchorLine: line,
+          anchorCol: col,
+          headLine: line,
+          headCol: col,
+        };
+        @selections = [newSelection];
+        if (@file) {
+          editorEngine.setSelections(@file.id, [newSelection]).catch(console.error);
+        }
+      }}
     />
-    <EditorInput onInput={onInput} onKeyDown={onKeyDown} />
   </div>
 }

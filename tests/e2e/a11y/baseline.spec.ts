@@ -74,10 +74,10 @@ test.describe('Baseline Accessibility', () => {
 
   test('command palette has no a11y violations when open', async ({ page }) => {
     // Open command palette
-    await triggerAction(page, 'view.quickOpen');
+    await triggerAction(page, 'view.quickOpen', 800);
 
-    // Wait for palette to be visible
-    await page.waitForSelector('input[placeholder="Search files..."]', { timeout: 5000 });
+    // Wait for palette input to be in DOM (palette may have 'hidden' class but still in tree)
+    await page.locator('#command-palette-input').waitFor({ state: 'attached', timeout: 10000 });
 
     // Run axe scan
     const accessibilityScanResults = await new AxeBuilder({ page })

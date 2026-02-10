@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mount } from 'ripple';
+import { mount, tick } from 'ripple';
 import * as workspace from '../../src/lib/workspace';
 
 // Test utility to mount a component and return cleanup function
@@ -80,6 +80,12 @@ describe('EditorArea', () => {
       // Should have editor container
       const editorContainer = container.querySelector('[data-testid="editor-container"]');
       expect(editorContainer).toBeTruthy();
+
+      // Should render gutter and minimap when editor is active
+      const gutter = container.querySelector('[data-testid="editor-gutter"]');
+      expect(gutter).toBeTruthy();
+      const minimap = container.querySelector('[data-testid="editor-minimap"]');
+      expect(minimap).toBeTruthy();
     });
 
     it('renders SettingsPage for settings tab', async () => {
@@ -174,6 +180,105 @@ describe('EditorArea', () => {
 
       // Should show empty state again
       expect(container.textContent).toContain('No file is open');
+    });
+
+    it('shows active file content in editor body (and updates when active file is set before mount)', async () => {
+      const { EditorArea } = await import('../../src/components/layout/EditorArea.ripple');
+
+      const fileA: workspace.OpenFile = {
+        id: 'file-a',
+        path: '/a.ts',
+        name: 'a.ts',
+        content: 'content A',
+        isDirty: false,
+        language: 'typescript',
+      };
+      const fileB: workspace.OpenFile = {
+        id: 'file-b',
+        path: '/b.ts',
+        name: 'b.ts',
+        content: 'content B',
+        isDirty: false,
+        language: 'typescript',
+      };
+      workspace.openFiles.push(fileA, fileB);
+      workspace.setActiveFileId(fileB.id);
+
+      const { container, cleanup: c } = mountComponent(EditorArea);
+      cleanup = c;
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const editorContainer = container.querySelector('[data-testid="editor-container"]');
+      expect(editorContainer).toBeTruthy();
+      expect(editorContainer?.textContent).toContain('content B');
+      expect(editorContainer?.textContent).not.toContain('content A');
+    });
+
+    it('shows first file content when that file is active at mount', async () => {
+      const { EditorArea } = await import('../../src/components/layout/EditorArea.ripple');
+
+      const fileA: workspace.OpenFile = {
+        id: 'file-a',
+        path: '/a.ts',
+        name: 'a.ts',
+        content: 'content A',
+        isDirty: false,
+        language: 'typescript',
+      };
+      const fileB: workspace.OpenFile = {
+        id: 'file-b',
+        path: '/b.ts',
+        name: 'b.ts',
+        content: 'content B',
+        isDirty: false,
+        language: 'typescript',
+      };
+      workspace.openFiles.push(fileA, fileB);
+      workspace.setActiveFileId(fileA.id);
+
+      const { container, cleanup: c } = mountComponent(EditorArea);
+      cleanup = c;
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const editorContainer = container.querySelector('[data-testid="editor-container"]');
+      expect(editorContainer).toBeTruthy();
+      expect(editorContainer?.textContent).toContain('content A');
+    });
+  });
+
+  describe('line-number column', () => {
+    it('shows exactly one gutter with visible line numbers when file is open', async () => {
+      const { EditorArea } = await import('../../src/components/layout/EditorArea.ripple');
+
+      const fileWithContent: workspace.OpenFile = {
+        id: 'gutter-test',
+        path: '/gutter.ts',
+        name: 'gutter.ts',
+        content: 'line one\nline two',
+        isDirty: false,
+        language: 'typescript',
+      };
+      workspace.openFiles.push(fileWithContent);
+      workspace.setActiveFileId(fileWithContent.id);
+
+      const { container, cleanup: c } = mountComponent(EditorArea);
+      cleanup = c;
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const triggerResize = (globalThis as any).__triggerResizeObserver__ as (height: number) => void;
+      if (typeof triggerResize === 'function') {
+        triggerResize(400);
+        await tick();
+      }
+
+      const gutters = container.querySelectorAll('[data-testid="editor-gutter"]');
+      expect(gutters.length).toBe(1);
+
+      const gutter = gutters[0];
+      expect(gutter?.textContent).toContain('1');
     });
   });
 

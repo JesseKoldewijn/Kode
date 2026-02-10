@@ -4,7 +4,10 @@ use crate::editor::error::Result;
 use crate::editor::highlight::{get_viewport_highlights, ViewportHighlights};
 use crate::editor::history::HistoryState;
 use crate::editor::parsing::update_tree;
+use crate::editor::search::{search_in_buffer, SearchMatch, SearchOptions};
 use crate::editor::selection::{Selection, SelectionSet};
+use crate::editor::symbols::DocumentSymbol;
+use crate::editor::folding::{FoldRange, compute_fold_ranges};
 use serde::Serialize;
 use std::path::PathBuf;
 use tree_sitter::{InputEdit, Point};
@@ -137,6 +140,32 @@ pub async fn open_buffer(path: String) -> Result<BufferInfo> {
     Ok(result)
 }
 
+/// Get up-to-date buffer metadata for an already-open buffer.
+#[tauri::command]
+pub async fn get_buffer_info(buffer_id: String) -> Result<BufferInfo> {
+    let buffer_arc = {
+        let map = MANAGER.read().await;
+        map.get(&buffer_id)
+            .ok_or_else(|| crate::editor::EditorError::BufferNotFound(buffer_id.clone()))?
+    };
+
+    let result = {
+        let buffer = buffer_arc.read().await;
+        BufferInfo {
+            id: buffer.id.clone(),
+            language: format!("{:?}", buffer.language),
+            line_count: buffer.rope.len_lines() as u32,
+            char_count: buffer.rope.len_chars() as u64,
+            version: buffer.version,
+            is_dirty: buffer.is_dirty,
+            line_ending: format!("{:?}", buffer.line_ending),
+        }
+    };
+
+    drop(buffer_arc);
+    Ok(result)
+}
+
 #[tauri::command]
 pub async fn close_buffer(buffer_id: String) -> Result<()> {
     log::info!("[close_buffer] START: buffer_id={}", buffer_id);
@@ -146,6 +175,34 @@ pub async fn close_buffer(buffer_id: String) -> Result<()> {
     map.close(&buffer_id);
     log::info!("[close_buffer] COMPLETE: buffer_id={}", buffer_id);
     Ok(())
+}
+
+/// Search within a single buffer using the rope content.
+#[tauri::command]
+pub async fn search_buffer(
+    buffer_id: String,
+    query: String,
+    is_regex: bool,
+    case_sensitive: bool,
+) -> Result<Vec<SearchMatch>> {
+    // Get buffer Arc from map
+    let buffer_arc = {
+        let map = MANAGER.read().await;
+        map.get(&buffer_id)
+            .ok_or_else(|| crate::editor::EditorError::BufferNotFound(buffer_id.clone()))?
+    };
+
+    let result = {
+        let buffer = buffer_arc.read().await;
+        let options = SearchOptions {
+            is_regex,
+            case_sensitive,
+        };
+        search_in_buffer(&buffer, &query, options)
+    };
+
+    drop(buffer_arc);
+    result
 }
 
 #[tauri::command]
@@ -190,6 +247,42 @@ pub async fn get_highlights(buffer_id: String, start_line: u32, end_line: u32) -
     drop(buffer_arc);
     
     Ok(result)
+}
+
+/// Get a flat list of document symbols for an open buffer.
+#[tauri::command]
+pub async fn get_symbols(buffer_id: String) -> Result<Vec<DocumentSymbol>> {
+    let buffer_arc = {
+        let map = MANAGER.read().await;
+        map.get(&buffer_id)
+            .ok_or_else(|| crate::editor::EditorError::BufferNotFound(buffer_id.clone()))?
+    };
+
+    let result = {
+        let buffer = buffer_arc.read().await;
+        Ok(crate::editor::symbols::extract_document_symbols(&buffer))
+    };
+
+    drop(buffer_arc);
+    result
+}
+
+/// Get all foldable ranges for an open buffer.
+#[tauri::command]
+pub async fn get_fold_ranges(buffer_id: String) -> Result<Vec<FoldRange>> {
+    let buffer_arc = {
+        let map = MANAGER.read().await;
+        map.get(&buffer_id)
+            .ok_or_else(|| crate::editor::EditorError::BufferNotFound(buffer_id.clone()))?
+    };
+
+    let result = {
+        let buffer = buffer_arc.read().await;
+        Ok(compute_fold_ranges(&buffer))
+    };
+
+    drop(buffer_arc);
+    result
 }
 
 #[tauri::command]

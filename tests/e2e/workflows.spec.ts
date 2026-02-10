@@ -74,7 +74,7 @@ test.describe('UI Workflow Tests', () => {
     await expect(main).toBeVisible();
 
     // Empty state should show app name and message
-    const heading = page.getByRole('main').getByRole('heading', { name: 'Kode' });
+    const heading = page.getByRole('main').getByRole('heading', { name: 'JereKode' });
     await expect(heading).toBeVisible();
 
     const emptyMsg = page.getByText('No file is open');

@@ -10,6 +10,7 @@ export component EditorLine(props: {
   lineText: string;
   highlightLine: HighlightedLine | undefined;
   selections: Selection[];
+  wordWrap: boolean;
   onMouseDown: (e: MouseEvent, lineNum: number, lineText: string) => void;
   onMouseMove: (e: MouseEvent, lineNum: number, lineText: string) => void;
   onMouseUp: () => void;
@@ -83,10 +84,13 @@ export component EditorLine(props: {
     onMouseMove={(e: MouseEvent) => props.onMouseMove(e, props.lineNum, props.lineText)}
     onMouseUp={props.onMouseUp}
   >
-    <div class="w-10 flex-shrink-0 text-right pr-4 text-white/30 select-none">
-      {props.lineNum + 1}
-    </div>
-    <div class="editor-line-content whitespace-pre relative flex-1">
+    <div
+      class={{
+        'editor-line-content relative flex-1': true,
+        'whitespace-pre': !props.wordWrap,
+        'whitespace-pre-wrap break-words': props.wordWrap,
+      }}
+    >
       if (selectionRange !== null && selectionRange.start < selectionRange.end) {
         <div 
           class="absolute top-0 h-full bg-[#264f78] pointer-events-none"

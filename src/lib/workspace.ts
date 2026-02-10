@@ -266,6 +266,12 @@ export function setActiveFileId(id: string | null): void {
   activeFileId = id;
   console.log('[Workspace] Notifying active file subscribers');
   notifyActiveFileSubscribers();
+  // Dispatch custom event in next frame so UI handler runs outside workspace call stack (Ripple may not re-render when state is set from subscriber callback).
+  if (typeof window !== 'undefined') {
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new CustomEvent('workspace-active-file-changed', { detail: id }));
+    });
+  }
 
   // Update file info for the newly active file
   if (id) {
@@ -919,4 +925,12 @@ export async function saveFileAs(id: string): Promise<void> {
   } catch (error) {
     console.error('Failed to save file as:', error);
   }
+}
+
+// Debug: expose workspace state in dev for E2E/debugging (e.g. scripts/debug-editor-content.ts)
+if (typeof window !== 'undefined') {
+  (window as unknown as { __kodeWorkspace?: { activeFileId: () => string | null; openFileIds: () => string[] } }).__kodeWorkspace = {
+    activeFileId: () => activeFileId,
+    openFileIds: () => openFiles.map((f) => f.id),
+  };
 }

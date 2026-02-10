@@ -20,6 +20,7 @@ import {
   getDemoWorkspacePath,
   resetFilesystemMocks,
 } from './filesystem.mock';
+import { getMockFileContent } from './data/sample-project';
 import { handleTerminalCommand, resetTerminalMocks } from './terminal.mock';
 import { handleAgentCommand, resetAgentMocks } from './agent.mock';
 
@@ -171,6 +172,58 @@ function handleIPCCommand(cmd: string, args: Record<string, unknown>): unknown {
 
   // File watcher commands (no-op in mock mode)
   if (cmd === 'start_watcher' || cmd === 'stop_watcher') {
+    return null;
+  }
+
+  // Editor engine commands (mock for browser mode - no Rust editor backend)
+  if (cmd === 'open_buffer') {
+    const path = args.path as string;
+    const content = getMockFileContent(path) ?? '';
+    const lines = content.split('\n');
+    const ext = path.split('.').pop()?.toLowerCase() ?? '';
+    const language =
+      ext === 'ts' || ext === 'tsx' ? 'typescript' : ext === 'js' || ext === 'jsx' ? 'javascript' : ext;
+    return {
+      id: path,
+      language,
+      lineCount: lines.length,
+      charCount: content.length,
+      version: 0,
+      isDirty: false,
+      lineEnding: '\n',
+    };
+  }
+  if (cmd === 'close_buffer') {
+    return undefined;
+  }
+  if (cmd === 'get_buffer_info') {
+    const bufferId = args.bufferId as string;
+    const content = getMockFileContent(bufferId) ?? '';
+    const lines = content.split('\n');
+    return {
+      id: bufferId,
+      language: 'typescript',
+      lineCount: lines.length,
+      charCount: content.length,
+      version: 0,
+      isDirty: false,
+      lineEnding: '\n',
+    };
+  }
+  if (cmd === 'get_highlights') {
+    return { bufferId: args.bufferId, version: 0, lines: [], totalLines: 0 };
+  }
+  if (
+    cmd === 'get_selections' ||
+    cmd === 'search_buffer' ||
+    cmd === 'get_symbols' ||
+    cmd === 'get_fold_ranges' ||
+    cmd === 'undo_buffer' ||
+    cmd === 'redo_buffer' ||
+    cmd === 'get_history_state' ||
+    cmd === 'edit_buffer' ||
+    cmd === 'set_selections'
+  ) {
     return null;
   }
 

@@ -83,6 +83,30 @@ export interface EditWithSelectionsResult {
   selections: SelectionSet;
 }
 
+export interface SearchMatch {
+  lineNumber: number;
+  startCol: number;
+  endCol: number;
+  lineText: string;
+  matchText: string;
+}
+
+export interface DocumentSymbol {
+  name: string;
+  kind: string;
+  startLine: number;
+  endLine: number;
+  startCol: number;
+  endCol: number;
+  children: DocumentSymbol[];
+}
+
+export interface FoldRange {
+  startLine: number;
+  endLine: number;
+  kind: string;
+}
+
 export const editorEngine = {
   async openBuffer(path: string): Promise<BufferInfo> {
     console.log('[EditorEngine] openBuffer START:', path);
@@ -98,6 +122,10 @@ export const editorEngine = {
 
   async closeBuffer(bufferId: string): Promise<void> {
     return await invoke('close_buffer', { bufferId });
+  },
+
+  async getBufferInfo(bufferId: string): Promise<BufferInfo> {
+    return await invoke('get_buffer_info', { bufferId });
   },
 
   async getHighlights(
@@ -134,6 +162,23 @@ export const editorEngine = {
 
   async getSelections(bufferId: string): Promise<SelectionSet> {
     return await invoke('get_selections', { bufferId });
+  },
+
+  async searchBuffer(
+    bufferId: string,
+    query: string,
+    isRegex: boolean,
+    caseSensitive: boolean
+  ): Promise<SearchMatch[]> {
+    return await invoke('search_buffer', { bufferId, query, isRegex, caseSensitive });
+  },
+
+  async getSymbols(bufferId: string): Promise<DocumentSymbol[]> {
+    return await invoke('get_symbols', { bufferId });
+  },
+
+  async getFoldRanges(bufferId: string): Promise<FoldRange[]> {
+    return await invoke('get_fold_ranges', { bufferId });
   },
 
   async undo(bufferId: string): Promise<UndoRedoResult> {

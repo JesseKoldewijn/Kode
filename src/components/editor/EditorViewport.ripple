@@ -1,5 +1,5 @@
-import { track, effect } from 'ripple';
-import { editorEngine, type ViewportHighlights, type Selection, type HighlightedLine } from '../../lib/editor-engine';
+import { track, effect, trackSplit } from 'ripple';
+import { editorEngine, type ViewportHighlights, type Selection, type HighlightedLine, type FoldRange } from '../../lib/editor-engine';
 import { EditorLine } from './EditorLine.ripple';
 
 export component EditorViewport(props: {
@@ -9,20 +9,25 @@ export component EditorViewport(props: {
   viewportHeight: number;
   lineHeight: number;
   selections: Selection[];
+  foldRanges: FoldRange[] | null;
+  foldedStartLines: number[];
+  wordWrap: boolean;
   onMouseDown: (line: number, col: number) => void;
   onMouseMove: (line: number, col: number) => void;
   onMouseUp: () => void;
 }) {
+  const [content, bufferIdProp, rest] = trackSplit(props, ['content', 'bufferId']);
   let highlights = track<ViewportHighlights | null>(null);
   let highlightMap = track<Map<number, HighlightedLine>>(new Map());
   let cachedLines = track<string[]>([]);
   let lastBufferId = track<string | null>(null);
   let highlightFetchTimer: number | null = null; // NOT tracked - just a regular variable
 
-  // Cache split lines to avoid repeated splits
+  // Cache split lines from reactive content so viewport updates when file switches
   effect(() => {
-    if (props.content) {
-      @cachedLines = props.content.split('\n');
+    const c = @content;
+    if (c) {
+      @cachedLines = c.split('\n');
     } else {
       @cachedLines = [];
     }
@@ -41,15 +46,17 @@ export component EditorViewport(props: {
 
   // Reset highlights when buffer changes
   effect(() => {
-    if (props.bufferId !== @lastBufferId) {
+    const bid = @bufferIdProp;
+    if (bid !== @lastBufferId) {
       @highlights = null;
-      @lastBufferId = props.bufferId;
+      @lastBufferId = bid;
     }
   });
 
   // Debounced highlight fetching
   effect(() => {
-    if (!props.bufferId) {
+    const bid = @bufferIdProp;
+    if (!bid) {
       @highlights = null;
       return;
     }
@@ -64,7 +71,7 @@ export component EditorViewport(props: {
 
     // Debounce by 50ms to reduce highlight fetches during rapid changes
     highlightFetchTimer = setTimeout(() => {
-      editorEngine.getHighlights(props.bufferId!, startLine, endLine).then((data) => {
+      editorEngine.getHighlights(bid, startLine, endLine).then((data) => {
         @highlights = data;
       }).catch((err) => {
         console.error('[EditorViewport] Failed to fetch highlights:', err);
@@ -72,11 +79,49 @@ export component EditorViewport(props: {
     }, 50) as unknown as number;
   });
 
-  const totalHeight = @cachedLines.length * props.lineHeight;
-  const startLine = Math.floor(props.scrollTop / props.lineHeight);
+  const contentLines = @content ? @content.split('\n') : [];
+  const logicalTotalLines =
+    contentLines.length > 0
+      ? contentLines.length
+      : (@cachedLines.length > 0 ? @cachedLines.length : (@highlights?.totalLines || 0));
 
-  // Use cached lines for better performance
+  const foldedSet = new Set<number>(props.foldedStartLines);
+  const activeFoldedRanges = (props.foldRanges || []).filter((range) =>
+    foldedSet.has(range.startLine)
+  );
+
+  const visibleLineNumbers = (() => {
+    const result: number[] = [];
+    let i = 0;
+
+    while (i < logicalTotalLines) {
+      const range = activeFoldedRanges.find((r) => r.startLine === i);
+      if (range) {
+        // Show only the start line for folded range
+        result.push(i);
+        i = range.endLine + 1;
+      } else {
+        // Ensure we don't include interior lines of other folded ranges
+        const covered = activeFoldedRanges.some(
+          (r) => i > r.startLine && i <= r.endLine
+        );
+        if (!covered) {
+          result.push(i);
+        }
+        i++;
+      }
+    }
+
+    return result;
+  })();
+
+  const totalHeight = visibleLineNumbers.length * props.lineHeight;
+  const startIndex = Math.floor(props.scrollTop / props.lineHeight);
+
   const getLineText = (lineNum: number): string => {
+    if (contentLines.length > 0) {
+      return contentLines[lineNum] ?? '';
+    }
     if (@cachedLines.length > 0) {
       return @cachedLines[lineNum] || '';
     }
@@ -87,11 +132,11 @@ export component EditorViewport(props: {
   };
 
   const getVisibleLineNumbers = (): number[] => {
-    const endLine = startLine + Math.ceil(props.viewportHeight / props.lineHeight) + 1;
-    const totalLines = @cachedLines.length > 0 ? @cachedLines.length : (@highlights?.totalLines || 0);
+    const endIndex =
+      startIndex + Math.ceil(props.viewportHeight / props.lineHeight) + 1;
     const result: number[] = [];
-    for (let i = startLine; i < Math.min(endLine, totalLines); i++) {
-      result.push(i);
+    for (let i = startIndex; i < Math.min(endIndex, visibleLineNumbers.length); i++) {
+      result.push(visibleLineNumbers[i]);
     }
     return result;
   };
@@ -133,13 +178,14 @@ export component EditorViewport(props: {
 
   <div class="relative w-full overflow-hidden font-mono text-[13px]" style={{ height: props.viewportHeight + 'px' }}>
     <div class="absolute w-full" style={{ height: totalHeight + 'px' }}>
-      <div class="absolute w-full" style={{ transform: `translateY(${startLine * props.lineHeight}px)` }}>
-        for (const lineNum of getVisibleLineNumbers(); key `${props.bufferId}-${lineNum}`) {
+      <div class="absolute w-full" style={{ transform: `translateY(${startIndex * props.lineHeight}px)` }}>
+        for (const lineNum of getVisibleLineNumbers(); key `${@bufferIdProp}-${lineNum}`) {
           <EditorLine 
             lineNum={lineNum}
             lineText={getLineText(lineNum)}
             highlightLine={@highlightMap.get(lineNum) || null}
             selections={props.selections}
+            wordWrap={props.wordWrap}
             onMouseDown={handleLineMouseDown}
             onMouseMove={handleLineMouseMove}
             onMouseUp={props.onMouseUp}

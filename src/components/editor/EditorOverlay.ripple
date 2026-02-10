@@ -1,0 +1,136 @@
+import { track, effect } from 'ripple';
+import { editorEngine, type SearchMatch } from '../../lib/editor-engine';
+
+export component EditorOverlay(props: {
+  bufferId: string | null;
+  visible: boolean;
+  onClose: () => void;
+  onGoToMatch: (line: number, col: number) => void;
+}) {
+  let query = track('');
+  let matches = track<SearchMatch[]>([]);
+  let activeIndex = track(0);
+  let debounceTimer: number | null = null;
+  let inputRef = track<HTMLInputElement | null>(null);
+
+  // Fetch matches when query changes (debounced)
+  effect(() => {
+    if (!props.visible || !props.bufferId) {
+      @matches = [];
+      @activeIndex = 0;
+      return;
+    }
+
+    const currentQuery = @query;
+    if (!currentQuery) {
+      @matches = [];
+      @activeIndex = 0;
+      return;
+    }
+
+    if (debounceTimer !== null) {
+      clearTimeout(debounceTimer);
+    }
+
+    debounceTimer = setTimeout(() => {
+      if (!props.bufferId) return;
+      editorEngine
+        .searchBuffer(props.bufferId, currentQuery, false, false)
+        .then((result) => {
+          @matches = result;
+          @activeIndex = 0;
+        })
+        .catch((err) => {
+          console.error('[EditorOverlay] searchBuffer failed', err);
+        });
+    }, 100) as unknown as number;
+  });
+
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      props.onClose();
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const list = @matches;
+      if (list.length === 0) {
+        return;
+      }
+      const idx = Math.max(0, Math.min(@activeIndex, list.length - 1));
+      const match = list[idx];
+      props.onGoToMatch(match.lineNumber, match.startCol);
+      return;
+    }
+
+    if (event.key === 'F3' || (event.key === 'g' && event.ctrlKey && event.shiftKey)) {
+      // Next match
+      event.preventDefault();
+      const list = @matches;
+      if (list.length === 0) return;
+      @activeIndex = (@activeIndex + 1) % list.length;
+      const match = list[@activeIndex];
+      props.onGoToMatch(match.lineNumber, match.startCol);
+      return;
+    }
+
+    if (event.key === 'F3' && event.shiftKey) {
+      // Previous match
+      event.preventDefault();
+      const list = @matches;
+      if (list.length === 0) return;
+      @activeIndex = (@activeIndex - 1 + list.length) % list.length;
+      const match = list[@activeIndex];
+      props.onGoToMatch(match.lineNumber, match.startCol);
+    }
+  };
+  const currentMatches = @matches;
+  const currentIndex = @activeIndex;
+  const countLabel =
+    currentMatches.length === 0
+      ? '0 of 0'
+      : String(currentIndex + 1) + ' of ' + String(currentMatches.length);
+
+  // Focus the search input when overlay becomes visible
+  effect(() => {
+    if (props.visible && @inputRef) {
+      @inputRef.focus();
+      @inputRef.select();
+    }
+  });
+
+  <div class="pointer-events-none">
+    if (props.visible) {
+      <div class="absolute left-4 top-4 z-20 rounded bg-[#252526] px-3 py-2 text-xs text-white shadow-lg border border-white/10 pointer-events-auto">
+        <div class="flex items-center gap-2">
+          <input
+            {ref (el: HTMLInputElement) => @inputRef = el}
+            class="rounded bg-[#1e1e1e] px-2 py-1 text-xs outline-none border border-white/20"
+            placeholder="Find in file"
+            role="search"
+            aria-label="Find in file"
+            value={@query}
+            onInput={(event: InputEvent) => {
+              const target = event.target as HTMLInputElement;
+              @query = target.value;
+            }}
+            onKeyDown={handleKeyDown}
+          />
+          <div class="min-w-[60px] text-right text-white/70 select-none">
+            {countLabel}
+          </div>
+          <button
+            class="ml-2 rounded px-2 py-1 text-xs text-white/80 hover:bg-white/10"
+            onClick={props.onClose}
+          >
+            {"Esc"}
+          </button>
+        </div>
+      </div>
+    }
+  </div>
+}
+
+

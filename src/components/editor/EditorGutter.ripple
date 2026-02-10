@@ -1,0 +1,53 @@
+import type { FoldRange } from '../../lib/editor-engine';
+
+export component EditorGutter(props: {
+  totalLines: number;
+  viewportStartLine: number;
+  viewportLineCount: number;
+  activeLine: number;
+  foldRanges: FoldRange[] | null;
+  foldedStartLines: number[];
+  onToggleFold: (line: number) => void;
+}) {
+  const foldedSet = new Set<number>(props.foldedStartLines);
+
+  const isFoldStart = (line: number): boolean => {
+    if (!props.foldRanges) return false;
+    return props.foldRanges.some((range) => range.startLine === line);
+  };
+
+  <div
+    data-testid="editor-gutter"
+    class="flex flex-col h-full bg-[#252526] border-r border-black/50 text-[11px] text-white/50 select-none"
+  >
+    const endLine =
+      props.viewportStartLine + props.viewportLineCount + 1;
+    const maxLine = Math.max(0, Math.min(props.totalLines, endLine));
+
+    for (const line of Array.from({ length: maxLine - props.viewportStartLine }, (_, idx) => props.viewportStartLine + idx); key `gutter-${line}`) {
+      const isActive = line === props.activeLine;
+      const foldStart = isFoldStart(line);
+      const isFolded = foldedSet.has(line);
+
+      <div
+        class={{
+          'flex h-[20px] items-center justify-end pr-2 pl-1 cursor-default': true,
+          'bg-white/10 text-white': isActive,
+        }}
+      >
+        if (foldStart) {
+          <button
+            class="mr-1 text-xs text-white/70 hover:text-white fold-toggle"
+            onClick={() => props.onToggleFold(line)}
+          >
+            {isFolded ? '▸' : '▾'}
+          </button>
+        } else {
+          <span class="mr-1 w-3" />
+        }
+        <span>{line + 1}</span>
+      </div>
+    }
+  </div>
+}
+

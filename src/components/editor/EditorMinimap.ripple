@@ -1,0 +1,52 @@
+import { track } from 'ripple';
+
+export component EditorMinimap(props: {
+  totalLines: number;
+  viewportStartLine: number;
+  viewportLineCount: number;
+  onJumpToLine: (line: number) => void;
+}) {
+  let container = track<HTMLDivElement | null>(null);
+
+  const handleClick = (event: MouseEvent) => {
+    if (!@container || props.totalLines <= 0) {
+      return;
+    }
+
+    const rect = @container.getBoundingClientRect();
+    const y = event.clientY - rect.top;
+    const ratio = Math.max(0, Math.min(1, y / rect.height));
+    const line = Math.floor(ratio * props.totalLines);
+    props.onJumpToLine(line);
+  };
+
+  const clampedViewportStart = Math.max(
+    0,
+    Math.min(props.viewportStartLine, Math.max(0, props.totalLines - 1))
+  );
+  const clampedViewportCount =
+    props.viewportLineCount > 0 ? Math.min(props.viewportLineCount, props.totalLines) : 1;
+
+  const viewportTopPercent =
+    props.totalLines > 0 ? (clampedViewportStart / props.totalLines) * 100 : 0;
+  const viewportHeightPercent =
+    props.totalLines > 0
+      ? (clampedViewportCount / props.totalLines) * 100
+      : 0;
+
+  <div
+    {ref (el: HTMLDivElement) => @container = el}
+    class="h-full w-3 bg-white/5 relative rounded-sm cursor-pointer"
+    onClick={handleClick}
+  >
+    <div
+      class="absolute left-0 right-0 bg-white/30 rounded-sm"
+      style={{
+        top: viewportTopPercent + '%',
+        height: Math.max(viewportHeightPercent, 4) + '%',
+      }}
+    />
+  </div>
+}
+
+
