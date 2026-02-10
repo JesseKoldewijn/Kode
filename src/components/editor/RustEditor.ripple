@@ -1,5 +1,5 @@
 import { track, effect, trackSplit } from 'ripple';
-import { editorEngine, type ViewportHighlights, type Selection, type FoldRange } from '../../lib/editor-engine';
+import { editorEngine, type ViewportHighlights, type Selection, type FoldRange, type LspCompletionItem } from '../../lib/editor-engine';
 import { EditorViewport } from './EditorViewport.ripple';
 import { EditorInput } from './EditorInput.ripple';
 import { EditorMinimap } from './EditorMinimap.ripple';
@@ -33,6 +33,9 @@ export component RustEditor(props: {
   let currentFileId = track<string | null>(@file?.id ?? null);
   let mouseMoveThrottleTimer: number | null = null;
   let showFindOverlay = track(false);
+  let showCompletion = track(false);
+  let completionItems = track<LspCompletionItem[]>([]);
+  let completionSelectedIndex = track(0);
   let minimapTotalLines = track(1);
   let minimapStartLine = track(0);
   let minimapLineCount = track(0);
@@ -151,12 +154,17 @@ export component RustEditor(props: {
     const total =
       baseContent === '' ? 1 : baseContent.split('\n').length;
     const start = Math.floor(@scrollTop / 20);
+    // Use real viewport line count; enforce a minimum so gutter never shows just one line (e.g. before layout or tiny container)
+    const effectiveHeight = Math.max(@containerHeight, 400);
     const count =
-      @containerHeight > 0 ? Math.ceil(@containerHeight / 20) : 0;
+      effectiveHeight > 0
+        ? Math.ceil(effectiveHeight / 20)
+        : Math.min(100, Math.max(1, total));
+    const countClamped = Math.min(count, total);
 
     @minimapTotalLines = total;
     @minimapStartLine = start;
-    @minimapLineCount = count;
+    @minimapLineCount = countClamped;
   });
 
   // Subscribe to word wrap toggle action
@@ -457,6 +465,50 @@ export component RustEditor(props: {
       return;
     }
 
+    // Completion: when visible, handle navigation and accept
+    if (@showCompletion) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        @completionSelectedIndex = Math.min(@completionSelectedIndex + 1, @completionItems.length - 1);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        @completionSelectedIndex = Math.max(@completionSelectedIndex - 1, 0);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const item = @completionItems[@completionSelectedIndex];
+        if (item) {
+          const text = item.insertText ?? item.label;
+          await onInput(text);
+        }
+        @showCompletion = false;
+        @completionItems = [];
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        @showCompletion = false;
+        @completionItems = [];
+        return;
+      }
+    }
+
+    // Trigger completion (Ctrl+Space)
+    if (e.key === ' ' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      editorEngine.getLspCompletion(@file.id, currentSel.headLine, currentSel.headCol).then((items) => {
+        if (items && items.length > 0) {
+          @completionItems = items;
+          @completionSelectedIndex = 0;
+          @showCompletion = true;
+        }
+      }).catch(() => {});
+      return;
+    }
+
     // Handle Undo (Ctrl+Z / Cmd+Z)
     if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
       e.preventDefault();
@@ -673,14 +725,18 @@ export component RustEditor(props: {
       class="relative h-full w-full overflow-y-auto"
       onScroll={onScroll}
     >
-      <div style={{ height: @minimapTotalLines * 20 + 'px' }} aria-hidden="true" />
+      const editorContent = (@file && @currentFileId === @file.id ? (@localContent ?? @file.content) : @file?.content) ?? '';
+      const contentLineCount = editorContent === '' ? 1 : editorContent.split('\n').length;
+      const scrollTotalLines = Math.max(@minimapTotalLines, contentLineCount);
+      <div style={{ height: scrollTotalLines * 20 + 'px' }} aria-hidden="true" />
       <div
         class="absolute left-0 top-0 right-0 flex w-full"
         style={{ height: (@containerHeight || 400) + 'px' }}
       >
+        const gutterTotalLines = scrollTotalLines;
         <div class="flex-shrink-0">
           <EditorGutter
-            totalLines={@minimapTotalLines}
+            totalLines={gutterTotalLines}
             viewportStartLine={Math.floor(@scrollTop / 20)}
             viewportLineCount={@minimapLineCount}
             activeLine={@selections.length > 0 ? @selections[0].headLine : 0}
@@ -689,11 +745,11 @@ export component RustEditor(props: {
             onToggleFold={toggleFoldAtLine}
           />
         </div>
-        <div class="flex-1 min-w-0" data-editor-buffer-id={@file?.id ?? ''}>
+        <div class="flex-1 min-w-0 relative" data-editor-buffer-id={@file?.id ?? ''}>
           for (const fid of [@file?.id ?? '']; key fid) {
             <EditorViewport
               bufferId={@file?.id ?? null}
-              content={(@file && @currentFileId === @file.id ? (@localContent ?? @file.content) : @file?.content) ?? null}
+              content={editorContent === '' ? null : editorContent}
               scrollTop={@scrollTop}
               viewportHeight={@containerHeight || 400}
               lineHeight={20}
@@ -705,6 +761,30 @@ export component RustEditor(props: {
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
             />
+          }
+          if (@showCompletion && @completionItems.length > 0 && @selections.length > 0) {
+            const cursorLine = @selections[0].headLine;
+            <div
+              class="absolute left-2 right-2 max-h-[200px] overflow-auto rounded border border-white/20 bg-[#252526] shadow-lg z-20 py-1"
+              style={{ top: (cursorLine + 1) * 20 + 'px' }}
+              data-testid="completion-list"
+            >
+              for (const entry of @completionItems.map((item, i) => ({ item, i })); key entry.i) {
+                const isSelected = entry.i === @completionSelectedIndex;
+                <div
+                  class={{
+                    'px-3 py-1 text-[13px] cursor-pointer': true,
+                    'bg-white/15': isSelected,
+                    'hover:bg-white/10': !isSelected,
+                  }}
+                >
+                  {entry.item.label}
+                  if (entry.item.detail) {
+                    <span class="ml-2 text-white/60 text-[11px]">{entry.item.detail}</span>
+                  }
+                </div>
+              }
+            </div>
           }
         </div>
       </div>

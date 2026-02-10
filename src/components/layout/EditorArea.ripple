@@ -6,12 +6,14 @@ import { GoToLineDialog } from '../editor/GoToLineDialog.ripple';
 import { SettingsPage } from '../settings/SettingsPage.ripple';
 import {
   updateFileContent,
+  openFile,
   subscribeToCursorPosition,
   subscribeToGoToLine,
   isSpecialTab,
 } from '../../lib/workspace';
 import type { OpenFile, CursorPosition } from '../../lib/workspace';
 import { subscribeToAction } from '../../lib/keybindings';
+import { editorEngine } from '../../lib/editor-engine';
 
 export component EditorArea(props: { activeFile: OpenFile | null }) {
   const activeFile = () => props.activeFile;
@@ -73,12 +75,37 @@ export component EditorArea(props: { activeFile: OpenFile | null }) {
       }
     });
 
+    const unsubscribeGoToDefinition = subscribeToAction('editor.goToDefinition', () => {
+      const file = activeFile();
+      if (!file || isSpecialTab(file)) return;
+      const bufferId = file.id;
+      editorEngine.getSelections(bufferId).then((selSet) => {
+        const sel = selSet?.selections?.[selSet.primaryIndex ?? 0] ?? selSet?.selections?.[0];
+        if (!sel) return;
+        return editorEngine.getLspGotoDefinition(bufferId, sel.headLine, sel.headCol);
+      }).then((locations) => {
+        if (!locations || locations.length === 0) return;
+        const loc = locations[0];
+        return openFile(loc.path).then(() =>
+          editorEngine.setSelections(loc.path, [{
+            anchorLine: loc.startLine,
+            anchorCol: loc.startCharacter,
+            headLine: loc.startLine,
+            headCol: loc.startCharacter,
+          }])
+        );
+      }).catch((err) => {
+        console.debug('[EditorArea] Go to definition:', err);
+      });
+    });
+
     return () => {
       unsubscribeGoToLine();
       unsubscribeFind();
       unsubscribeFindReplace();
       unsubscribeFocusEditor();
       unsubscribeGoToLineExternal();
+      unsubscribeGoToDefinition();
     };
   });
 

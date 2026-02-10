@@ -1,5 +1,5 @@
 import { track, effect, trackSplit } from 'ripple';
-import { editorEngine, type ViewportHighlights, type Selection, type HighlightedLine, type FoldRange } from '../../lib/editor-engine';
+import { editorEngine, type ViewportHighlights, type Selection, type HighlightedLine, type FoldRange, type LspDiagnostic } from '../../lib/editor-engine';
 import { EditorLine } from './EditorLine.ripple';
 
 export component EditorViewport(props: {
@@ -19,9 +19,16 @@ export component EditorViewport(props: {
   const [content, bufferIdProp, rest] = trackSplit(props, ['content', 'bufferId']);
   let highlights = track<ViewportHighlights | null>(null);
   let highlightMap = track<Map<number, HighlightedLine>>(new Map());
+  let diagnostics = track<LspDiagnostic[]>([]);
+  let diagnosticsByLine = track<Map<number, LspDiagnostic[]>>(new Map());
   let cachedLines = track<string[]>([]);
   let lastBufferId = track<string | null>(null);
   let highlightFetchTimer: number | null = null; // NOT tracked - just a regular variable
+  let diagnosticsTimer: number | null = null;
+  let hoverContent = track<string | null>(null);
+  let hoverTimer: number | null = null;
+  let lastHoverLine = 0;
+  let lastHoverCol = 0;
 
   // Cache split lines from reactive content so viewport updates when file switches
   effect(() => {
@@ -49,8 +56,34 @@ export component EditorViewport(props: {
     const bid = @bufferIdProp;
     if (bid !== @lastBufferId) {
       @highlights = null;
+      @diagnostics = [];
+      @diagnosticsByLine = new Map();
+      @hoverContent = null;
       @lastBufferId = bid;
     }
+  });
+
+  // Fetch LSP diagnostics when buffer is set (debounced; LSP sends after didOpen/didChange)
+  effect(() => {
+    const bid = @bufferIdProp;
+    if (!bid) return;
+    if (diagnosticsTimer !== null) clearTimeout(diagnosticsTimer);
+    diagnosticsTimer = setTimeout(() => {
+      editorEngine.getLspDiagnostics(bid).then((list) => {
+        @diagnostics = list;
+        const byLine = new Map<number, LspDiagnostic[]>();
+        for (const d of list) {
+          const start = d.range.startLine;
+          const end = d.range.endLine;
+          for (let line = start; line <= end; line++) {
+            const arr = byLine.get(line) ?? [];
+            arr.push(d);
+            byLine.set(line, arr);
+          }
+        }
+        @diagnosticsByLine = byLine;
+      }).catch(() => {});
+    }, 400) as unknown as number;
   });
 
   // Debounced highlight fetching
@@ -163,20 +196,39 @@ export component EditorViewport(props: {
     const target = e.target as HTMLElement;
     const lineElement = target.closest('.editor-line') as HTMLElement;
     if (!lineElement) return;
-    
+
     const codeContent = lineElement.querySelector('.editor-line-content') as HTMLElement;
     if (!codeContent) return;
-    
+
     const rect = codeContent.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    
     const charWidth = 7.8;
     const col = Math.max(0, Math.min(Math.floor(x / charWidth), lineText.length));
-    
+
     props.onMouseMove(lineNum, col);
+
+    if (props.bufferId) {
+      if (hoverTimer !== null) clearTimeout(hoverTimer);
+      lastHoverLine = lineNum;
+      lastHoverCol = col;
+      hoverTimer = window.setTimeout(() => {
+        hoverTimer = null;
+        editorEngine.getLspHover(props.bufferId!, lastHoverLine, lastHoverCol).then((result) => {
+          @hoverContent = result?.contents ?? null;
+        }).catch(() => {});
+      }, 400);
+    }
   };
 
   <div class="relative w-full overflow-hidden font-mono text-[13px]" style={{ height: props.viewportHeight + 'px' }}>
+    if (@hoverContent) {
+      <div
+        class="absolute top-1 right-2 max-w-[320px] max-h-[200px] overflow-auto rounded border border-white/20 bg-[#252526] shadow-lg z-30 px-3 py-2 text-[12px] text-white/90 whitespace-pre-wrap"
+        data-testid="hover-tooltip"
+      >
+        {@hoverContent}
+      </div>
+    }
     <div class="absolute w-full" style={{ height: totalHeight + 'px' }}>
       <div class="absolute w-full" style={{ transform: `translateY(${startIndex * props.lineHeight}px)` }}>
         for (const lineNum of getVisibleLineNumbers(); key `${@bufferIdProp}-${lineNum}`) {
@@ -184,6 +236,7 @@ export component EditorViewport(props: {
             lineNum={lineNum}
             lineText={getLineText(lineNum)}
             highlightLine={@highlightMap.get(lineNum) || null}
+            diagnosticsForLine={@diagnosticsByLine.get(lineNum) ?? []}
             selections={props.selections}
             wordWrap={props.wordWrap}
             onMouseDown={handleLineMouseDown}

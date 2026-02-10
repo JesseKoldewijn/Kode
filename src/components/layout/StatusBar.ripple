@@ -11,6 +11,7 @@ import {
   workspacePath,
 } from '../../lib/workspace';
 import type { CursorPosition, FileInfo } from '../../lib/workspace';
+import { editorEngine } from '../../lib/editor-engine';
 import { subscribeToZoom, getZoomPercentage, resetZoom } from '../../lib/zoom';
 import { git } from '../../lib/tauri';
 
@@ -22,6 +23,7 @@ export component StatusBar() {
   let encoding = track(currentFileInfo.encoding);
   let lineEnding = track(currentFileInfo.lineEnding);
   let language = track<string>('Plain Text');
+  let lspActive = track(false);
   let zoomLevel = track(100);
 
   // Subscribe to theme changes
@@ -41,17 +43,48 @@ export component StatusBar() {
     return unsubscribe;
   });
 
-  // Subscribe to active file changes to update language
+  // Subscribe to active file changes to update language and LSP indicator
   effect(() => {
+    let lspCheckTimeouts: ReturnType<typeof setTimeout>[] = [];
+
+    const checkLsp = (path: string, onlyIfStillActive = false) => {
+      editorEngine
+        .getLspHasSession(path)
+        .then((hasSession) => {
+          if (onlyIfStillActive && getActiveFile()?.path !== path) return;
+          @lspActive = hasSession;
+        })
+        .catch(() => {
+          if (onlyIfStillActive && getActiveFile()?.path !== path) return;
+          @lspActive = false;
+        });
+    };
+
     const unsubscribe = subscribeToActiveFile(() => {
+      for (const t of lspCheckTimeouts) clearTimeout(t);
+      lspCheckTimeouts = [];
+
       const activeFile = getActiveFile();
       if (activeFile) {
+        const path = activeFile.path;
         @language = getDisplayLanguage(activeFile.language);
+        @lspSupported = lspSupportedLanguages.has(activeFile.language);
+        checkLsp(path);
+        // Session is created asynchronously after didOpen; re-query so indicator appears once ready
+        const t1 = setTimeout(() => checkLsp(path, true), 600);
+        const t2 = setTimeout(() => checkLsp(path, true), 1500);
+        lspCheckTimeouts = [t1, t2];
       } else {
         @language = 'Plain Text';
+        @lspSupported = false;
+        @lspActive = false;
       }
     });
-    return unsubscribe;
+
+    return () => {
+      for (const t of lspCheckTimeouts) clearTimeout(t);
+      unsubscribe();
+    };
   });
 
   // Subscribe to zoom level changes
@@ -110,6 +143,9 @@ export component StatusBar() {
     };
     return displayMap[lang] || lang;
   };
+
+  const lspSupportedLanguages = new Set(['typescript', 'javascript', 'rust', 'python', 'json']);
+  let lspSupported = track(false);
 
   const handleThemeToggle = () => {
     cycleTheme();
@@ -220,7 +256,21 @@ export component StatusBar() {
         <span>{@themeMode === 'system' ? 'Auto' : @themeName === 'dark' ? 'Dark' : 'Light'}</span>
       </button>
 
-      <span class="flex items-center gap-1 px-1.5 h-[22px] whitespace-nowrap">{@language}</span>
+      <span
+        class="flex items-center gap-1 px-1.5 h-[22px] whitespace-nowrap"
+        title={
+          @lspActive
+            ? 'Language server active (diagnostics, completion, hover)'
+            : @lspSupported
+              ? 'LSP (run with Tauri and install language server for this language)'
+              : undefined
+        }
+      >
+        {@language}
+        if (@lspSupported) {
+          <span class={{ 'text-text-muted': !@lspActive }}>{' • LSP'}</span>
+        }
+      </span>
     </div>
   </footer>
 }

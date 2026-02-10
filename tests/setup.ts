@@ -17,6 +17,16 @@ vi.mock('@tauri-apps/api/core', () => ({
         return Promise.resolve('test content');
       case 'write_file':
         return Promise.resolve(undefined);
+      case 'lsp_has_session':
+        return Promise.resolve(false);
+      case 'lsp_get_diagnostics':
+        return Promise.resolve([]);
+      case 'lsp_goto_definition':
+        return Promise.resolve(null);
+      case 'lsp_hover':
+        return Promise.resolve(null);
+      case 'lsp_completion':
+        return Promise.resolve(null);
       default:
         return Promise.resolve(null);
     }

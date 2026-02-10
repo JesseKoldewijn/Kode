@@ -31,16 +31,25 @@ pub async fn edit_buffer(buffer_id: String, edit: EditOperation) -> Result<EditR
         map.get(&buffer_id)
             .ok_or_else(|| crate::editor::EditorError::BufferNotFound(buffer_id.clone()))?
     }; // Map lock released
-    
-    // Acquire per-buffer write lock and apply edit
-    let result = {
+
+    // Acquire per-buffer write lock and apply edit; capture content/version for LSP
+    let (result, lsp_content) = {
         let mut buffer = buffer_arc.write().await;
-        apply_edit(&mut buffer, edit)
+        let result = apply_edit(&mut buffer, edit);
+        let content = buffer.rope.to_string();
+        let version = buffer.version;
+        (result, (buffer_id.clone(), version, content))
     }; // Write lock dropped here
-    
-    // Drop Arc
+
     drop(buffer_arc);
-    
+
+    tokio::spawn(async move {
+        let (id, version, content) = lsp_content;
+        if let Err(e) = crate::lsp::notify_did_change(id, version, content).await {
+            log::debug!("[edit_buffer] LSP didChange: {}", e);
+        }
+    });
+
     Ok(result)
 }
 
@@ -67,12 +76,12 @@ pub async fn edit_buffer_with_selections(
     };
     
     // Acquire per-buffer write lock once for both operations
-    let result = {
+    let (result, lsp_content) = {
         let mut buffer = buffer_arc.write().await;
-        
+
         // Apply edit
         apply_edit(&mut buffer, edit);
-        
+
         // Set selections
         if selections.is_empty() {
             buffer.selections.clear();
@@ -80,14 +89,26 @@ pub async fn edit_buffer_with_selections(
             buffer.selections.selections = selections;
             buffer.selections.primary_index = 0;
         }
-        
-        EditWithSelectionsResult {
+
+        let content = buffer.rope.to_string();
+        let version = buffer.version;
+        let id = buffer_id.clone();
+        let result = EditWithSelectionsResult {
             version: buffer.version,
             selections: buffer.selections.clone(),
-        }
+        };
+        (result, (id, version, content))
     };
-    
+
     drop(buffer_arc);
+
+    tokio::spawn(async move {
+        let (id, version, content) = lsp_content;
+        if let Err(e) = crate::lsp::notify_did_change(id, version, content).await {
+            log::debug!("[edit_buffer_with_selections] LSP didChange: {}", e);
+        }
+    });
+
     Ok(result)
 }
 
@@ -137,6 +158,15 @@ pub async fn open_buffer(path: String) -> Result<BufferInfo> {
     log::info!("[open_buffer] Arc dropped: id={}", path);
     
     log::info!("[open_buffer] COMPLETE: id={}, lines={}, chars={}", result.id, result.line_count, result.char_count);
+
+    // Notify LSP in background (do not block response)
+    let path_for_lsp = path.clone();
+    tokio::spawn(async move {
+        if let Err(e) = crate::lsp::notify_did_open(path_for_lsp).await {
+            log::debug!("[open_buffer] LSP didOpen: {}", e);
+        }
+    });
+
     Ok(result)
 }
 
@@ -174,6 +204,15 @@ pub async fn close_buffer(buffer_id: String) -> Result<()> {
     log::info!("[close_buffer] Map WRITE lock ACQUIRED: buffer_id={}", buffer_id);
     map.close(&buffer_id);
     log::info!("[close_buffer] COMPLETE: buffer_id={}", buffer_id);
+    drop(map);
+
+    let id_for_lsp = buffer_id.clone();
+    tokio::spawn(async move {
+        if let Err(e) = crate::lsp::notify_did_close(id_for_lsp).await {
+            log::debug!("[close_buffer] LSP didClose: {}", e);
+        }
+    });
+
     Ok(())
 }
 

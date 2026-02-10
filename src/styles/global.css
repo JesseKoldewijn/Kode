@@ -647,3 +647,14 @@ body {
 .token-punctuation {
   color: var(--text-muted);
 }
+
+/* LSP diagnostics underline */
+.diagnostic-error {
+  background: var(--error, #f14c4c);
+}
+.diagnostic-warning {
+  background: var(--warning, #cca700);
+}
+.diagnostic-info {
+  background: var(--text-muted);
+}

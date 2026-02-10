@@ -3,6 +3,7 @@
 
 pub mod commands;
 pub mod editor;
+pub mod lsp;
 
 use tauri::{
     menu::{Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder},
@@ -234,6 +235,11 @@ pub fn run() {
             commands::editor::undo_buffer,
             commands::editor::redo_buffer,
             commands::editor::get_history_state,
+            crate::lsp::client::lsp_has_session,
+            crate::lsp::client::lsp_get_diagnostics,
+            crate::lsp::client::lsp_goto_definition,
+            crate::lsp::client::lsp_hover,
+            crate::lsp::client::lsp_completion,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Kode");

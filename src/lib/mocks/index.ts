@@ -213,6 +213,15 @@ function handleIPCCommand(cmd: string, args: Record<string, unknown>): unknown {
   if (cmd === 'get_highlights') {
     return { bufferId: args.bufferId, version: 0, lines: [], totalLines: 0 };
   }
+  if (cmd === 'lsp_has_session') {
+    return false;
+  }
+  if (cmd === 'lsp_get_diagnostics') {
+    return [];
+  }
+  if (cmd === 'lsp_goto_definition' || cmd === 'lsp_hover' || cmd === 'lsp_completion') {
+    return null;
+  }
   if (
     cmd === 'get_selections' ||
     cmd === 'search_buffer' ||

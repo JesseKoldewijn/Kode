@@ -1,14 +1,17 @@
-import type { Selection, HighlightedLine, HighlightSpan } from '../../lib/editor-engine';
+import type { Selection, HighlightedLine, LspDiagnostic } from '../../lib/editor-engine';
 
 interface TextSegment {
   text: string;
   scope?: string;
 }
 
+const CHAR_WIDTH = 7.8;
+
 export component EditorLine(props: {
   lineNum: number;
   lineText: string;
   highlightLine: HighlightedLine | undefined;
+  diagnosticsForLine: LspDiagnostic[];
   selections: Selection[];
   wordWrap: boolean;
   onMouseDown: (e: MouseEvent, lineNum: number, lineText: string) => void;
@@ -95,16 +98,35 @@ export component EditorLine(props: {
         <div 
           class="absolute top-0 h-full bg-[#264f78] pointer-events-none"
           style={{ 
-            left: (selectionRange.start * 7.8) + 'px', 
-            width: ((selectionRange.end - selectionRange.start) * 7.8) + 'px' 
+            left: (selectionRange.start * CHAR_WIDTH) + 'px', 
+            width: ((selectionRange.end - selectionRange.start) * CHAR_WIDTH) + 'px' 
           }}
         />
+      }
+
+      for (const diag of props.diagnosticsForLine; key `${props.lineNum}-${diag.message}-${diag.range.startCharacter}-${diag.range.endCharacter}`) {
+        const startLine = diag.range.startLine;
+        const endLine = diag.range.endLine;
+        const lineLen = props.lineText.length;
+        const startCol = startLine === props.lineNum ? diag.range.startCharacter : 0;
+        const endCol = endLine === props.lineNum ? diag.range.endCharacter : lineLen;
+        if (endCol > startCol) {
+          const severityClass = diag.severity === 1 ? 'diagnostic-error' : diag.severity === 2 ? 'diagnostic-warning' : 'diagnostic-info';
+          <div 
+            class={`absolute top-[18px] left-0 h-[2px] pointer-events-none ${severityClass}`}
+            style={{ 
+              left: (startCol * CHAR_WIDTH) + 'px', 
+              width: ((endCol - startCol) * CHAR_WIDTH) + 'px' 
+            }}
+            title={diag.message}
+          />
+        }
       }
       
       if (cursorCol !== null) {
         <div 
           class="absolute top-0 h-full w-[2px] bg-white animate-pulse pointer-events-none"
-          style={{ left: (cursorCol * 7.8) + 'px' }}
+          style={{ left: (cursorCol * CHAR_WIDTH) + 'px' }}
         />
       }
       

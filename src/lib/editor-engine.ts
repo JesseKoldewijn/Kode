@@ -107,6 +107,20 @@ export interface FoldRange {
   kind: string;
 }
 
+export interface LspRange {
+  startLine: number;
+  startCharacter: number;
+  endLine: number;
+  endCharacter: number;
+}
+
+export interface LspDiagnostic {
+  range: LspRange;
+  message: string;
+  severity?: number;
+  source?: string;
+}
+
 export const editorEngine = {
   async openBuffer(path: string): Promise<BufferInfo> {
     console.log('[EditorEngine] openBuffer START:', path);
@@ -192,4 +206,70 @@ export const editorEngine = {
   async getHistoryState(bufferId: string): Promise<HistoryState> {
     return await invoke('get_history_state', { bufferId });
   },
+
+  async getLspHasSession(bufferId: string): Promise<boolean> {
+    return await invoke<boolean>('lsp_has_session', { bufferId });
+  },
+
+  async getLspDiagnostics(bufferId: string): Promise<LspDiagnostic[]> {
+    return await invoke<LspDiagnostic[]>('lsp_get_diagnostics', { bufferId });
+  },
+
+  async getLspGotoDefinition(
+    bufferId: string,
+    line: number,
+    character: number
+  ): Promise<LspLocation[] | null> {
+    const result = await invoke<LspLocation[] | null>('lsp_goto_definition', {
+      bufferId,
+      line,
+      character,
+    });
+    return result ?? null;
+  },
+
+  async getLspHover(
+    bufferId: string,
+    line: number,
+    character: number
+  ): Promise<LspHoverResult | null> {
+    const result = await invoke<LspHoverResult | null>('lsp_hover', {
+      bufferId,
+      line,
+      character,
+    });
+    return result ?? null;
+  },
+
+  async getLspCompletion(
+    bufferId: string,
+    line: number,
+    character: number
+  ): Promise<LspCompletionItem[] | null> {
+    const result = await invoke<LspCompletionItem[] | null>('lsp_completion', {
+      bufferId,
+      line,
+      character,
+    });
+    return result ?? null;
+  },
 };
+
+export interface LspLocation {
+  path: string;
+  startLine: number;
+  startCharacter: number;
+  endLine: number;
+  endCharacter: number;
+}
+
+export interface LspHoverResult {
+  contents: string;
+}
+
+export interface LspCompletionItem {
+  label: string;
+  kind?: number;
+  detail?: string;
+  insertText?: string;
+}

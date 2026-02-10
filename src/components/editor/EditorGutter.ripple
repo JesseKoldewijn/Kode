@@ -20,11 +20,20 @@ export component EditorGutter(props: {
     data-testid="editor-gutter"
     class="flex flex-col h-full bg-[#252526] border-r border-black/50 text-[11px] text-white/50 select-none"
   >
+    const effectiveViewportCount = Math.max(1, props.viewportLineCount);
     const endLine =
-      props.viewportStartLine + props.viewportLineCount + 1;
+      props.viewportStartLine + effectiveViewportCount + 1;
     const maxLine = Math.max(0, Math.min(props.totalLines, endLine));
+    const rawLineCount =
+      props.viewportLineCount > 0
+        ? Math.max(1, maxLine - props.viewportStartLine)
+        : props.totalLines;
+    // Never show only one line for multi-line files (fixes layout/race where viewportLineCount is tiny)
+    const useFallbackRange = props.totalLines > 1 && rawLineCount === 1;
+    const lineCount = useFallbackRange ? Math.min(50, props.totalLines) : rawLineCount;
+    const startLine = useFallbackRange ? 0 : props.viewportStartLine;
 
-    for (const line of Array.from({ length: maxLine - props.viewportStartLine }, (_, idx) => props.viewportStartLine + idx); key `gutter-${line}`) {
+    for (const line of Array.from({ length: lineCount }, (_, idx) => startLine + idx); key `gutter-${line}`) {
       const isActive = line === props.activeLine;
       const foldStart = isFoldStart(line);
       const isFolded = foldedSet.has(line);
