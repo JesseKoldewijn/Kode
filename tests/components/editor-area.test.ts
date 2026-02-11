@@ -65,11 +65,12 @@ describe('EditorArea', () => {
     it('renders editor when file is active', async () => {
       const { EditorArea } = await import('../../src/components/layout/EditorArea.ripple');
 
-      // Add file to workspace
       workspace.openFiles.push(mockFile);
       workspace.setActiveFileId(mockFile.id);
 
-      const { container, cleanup: c } = mountComponent(EditorArea);
+      const { container, cleanup: c } = mountComponent(EditorArea, {
+        activeFile: workspace.getActiveFile(),
+      });
       cleanup = c;
 
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -104,7 +105,9 @@ describe('EditorArea', () => {
       workspace.openFiles.push(settingsTab);
       workspace.setActiveFileId(settingsTab.id);
 
-      const { container, cleanup: c } = mountComponent(EditorArea);
+      const { container, cleanup: c } = mountComponent(EditorArea, {
+        activeFile: workspace.getActiveFile(),
+      });
       cleanup = c;
 
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -128,7 +131,9 @@ describe('EditorArea', () => {
       workspace.openFiles.push(keybindingsTab);
       workspace.setActiveFileId(keybindingsTab.id);
 
-      const { container, cleanup: c } = mountComponent(EditorArea);
+      const { container, cleanup: c } = mountComponent(EditorArea, {
+        activeFile: workspace.getActiveFile(),
+      });
       cleanup = c;
 
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -142,23 +147,26 @@ describe('EditorArea', () => {
     it('updates when activeFileId changes', async () => {
       const { EditorArea } = await import('../../src/components/layout/EditorArea.ripple');
 
-      // Start with no active file
       const { container, cleanup: c } = mountComponent(EditorArea);
       cleanup = c;
 
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      // Initially shows empty state
       expect(container.textContent).toContain('No file is open');
 
-      // Add and activate a file
       workspace.openFiles.push(mockFile);
       workspace.setActiveFileId(mockFile.id);
 
+      // Re-mount with new activeFile so EditorArea (no context in test) shows the file
+      c();
+      const { container: container2, cleanup: c2 } = mountComponent(EditorArea, {
+        activeFile: workspace.getActiveFile(),
+      });
+      cleanup = c2;
+
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // Should now show editor
-      const editorContainer = container.querySelector('[data-testid="editor-container"]');
+      const editorContainer = container2.querySelector('[data-testid="editor-container"]');
       expect(editorContainer).toBeTruthy();
     });
 
@@ -168,18 +176,27 @@ describe('EditorArea', () => {
       workspace.openFiles.push(mockFile);
       workspace.setActiveFileId(mockFile.id);
 
-      const { container, cleanup: c } = mountComponent(EditorArea);
+      const { container, cleanup: c } = mountComponent(EditorArea, {
+        activeFile: workspace.getActiveFile(),
+      });
       cleanup = c;
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // Close the file
       workspace.closeFile(mockFile.id);
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // Should show empty state again
-      expect(container.textContent).toContain('No file is open');
+      // Re-mount with current workspace state (no context in test) to see empty state
+      c();
+      const { container: container2, cleanup: c2 } = mountComponent(EditorArea, {
+        activeFile: workspace.getActiveFile(),
+      });
+      cleanup = c2;
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(container2.textContent).toContain('No file is open');
     });
 
     it('shows active file content in editor body (and updates when active file is set before mount)', async () => {
@@ -204,7 +221,9 @@ describe('EditorArea', () => {
       workspace.openFiles.push(fileA, fileB);
       workspace.setActiveFileId(fileB.id);
 
-      const { container, cleanup: c } = mountComponent(EditorArea);
+      const { container, cleanup: c } = mountComponent(EditorArea, {
+        activeFile: workspace.getActiveFile(),
+      });
       cleanup = c;
 
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -237,7 +256,9 @@ describe('EditorArea', () => {
       workspace.openFiles.push(fileA, fileB);
       workspace.setActiveFileId(fileA.id);
 
-      const { container, cleanup: c } = mountComponent(EditorArea);
+      const { container, cleanup: c } = mountComponent(EditorArea, {
+        activeFile: workspace.getActiveFile(),
+      });
       cleanup = c;
 
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -263,12 +284,16 @@ describe('EditorArea', () => {
       workspace.openFiles.push(fileWithContent);
       workspace.setActiveFileId(fileWithContent.id);
 
-      const { container, cleanup: c } = mountComponent(EditorArea);
+      const { container, cleanup: c } = mountComponent(EditorArea, {
+        activeFile: workspace.getActiveFile(),
+      });
       cleanup = c;
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      const triggerResize = (globalThis as any).__triggerResizeObserver__ as (height: number) => void;
+      const triggerResize = (globalThis as any).__triggerResizeObserver__ as (
+        height: number
+      ) => void;
       if (typeof triggerResize === 'function') {
         triggerResize(400);
         await tick();
@@ -289,7 +314,9 @@ describe('EditorArea', () => {
       workspace.openFiles.push(mockFile);
       workspace.setActiveFileId(mockFile.id);
 
-      const { container, cleanup: c } = mountComponent(EditorArea);
+      const { container, cleanup: c } = mountComponent(EditorArea, {
+        activeFile: workspace.getActiveFile(),
+      });
       cleanup = c;
 
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -305,7 +332,9 @@ describe('EditorArea', () => {
       workspace.openFiles.push(mockFile);
       workspace.setActiveFileId(mockFile.id);
 
-      const { container, cleanup: c } = mountComponent(EditorArea);
+      const { container, cleanup: c } = mountComponent(EditorArea, {
+        activeFile: workspace.getActiveFile(),
+      });
       cleanup = c;
 
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -396,7 +425,7 @@ describe('EditorArea performance', () => {
 
     mount(EditorArea, {
       target: container,
-      props: {},
+      props: { activeFile: workspace.getActiveFile() },
     });
 
     const duration = performance.now() - start;

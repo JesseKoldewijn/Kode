@@ -15,6 +15,7 @@ import {
   getActiveFile,
   activeFileId,
   openFiles,
+  subscribeToActiveFile,
   nextTab,
   previousTab,
   newUntitledFile,
@@ -57,8 +58,14 @@ export component App() {
   let keybindingManager = track<KeybindingManager | null>(null);
   let isAboutOpen = track(false);
 
-  // Active file state at App level; sync from custom event (workspace dispatches in rAF so handler runs next frame).
+  // Active file state: pass Tracked ref to EditorArea so the child stays reactive (Ripple: props that are not Tracked are never reactive).
   let activeFile = track<OpenFile | null>(getActiveFile());
+  effect(() => {
+    const unsubscribe = subscribeToActiveFile(() => {
+      @activeFile = getActiveFile();
+    });
+    return unsubscribe;
+  });
   effect(() => {
     const handler = () => {
       @activeFile = getActiveFile();
@@ -270,9 +277,9 @@ export component App() {
 
     // E2E test hook: listen for custom events to trigger actions
     // This is needed because Chromium intercepts Ctrl+P/B/Shift+P at browser level
-    const testActionHandler = ((e: CustomEvent) => {
-      handleAction(e.detail);
-    }) as EventListener;
+    const testActionHandler: EventListener = (e: Event) => {
+      handleAction((e as CustomEvent).detail);
+    };
     window.addEventListener('__test-action', testActionHandler);
 
     // Load saved keybinding settings asynchronously and update if needed
@@ -388,7 +395,7 @@ export component App() {
 
       <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
         <main class="flex-1 min-h-0 overflow-hidden bg-editor-bg">
-          <EditorArea activeFile={@activeFile} />
+          <EditorArea activeFileRef={activeFile} activeFile={@activeFile} />
         </main>
 
         if (@isPanelVisible) {

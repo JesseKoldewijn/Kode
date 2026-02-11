@@ -262,13 +262,14 @@ export function setWorkspacePath(path: string | null): void {
 }
 
 export function setActiveFileId(id: string | null): void {
-  console.log('[Workspace] setActiveFileId START:', id);
   activeFileId = id;
-  console.log('[Workspace] Notifying active file subscribers');
   notifyActiveFileSubscribers();
-  // Dispatch custom event in next frame so UI handler runs outside workspace call stack (Ripple may not re-render when state is set from subscriber callback).
+  // Dispatch event so EditorArea/RustEditor listeners can sync.
   if (typeof window !== 'undefined') {
     requestAnimationFrame(() => {
+      if (typeof window !== 'undefined' && (window as unknown as { __DEBUG_EDITOR_AREA__?: boolean }).__DEBUG_EDITOR_AREA__) {
+        console.log('[Workspace] Dispatching workspace-active-file-changed', id);
+      }
       window.dispatchEvent(new CustomEvent('workspace-active-file-changed', { detail: id }));
     });
   }
@@ -277,11 +278,9 @@ export function setActiveFileId(id: string | null): void {
   if (id) {
     const file = openFiles.find((f) => f.id === id);
     if (file && !file.specialTab) {
-      console.log('[Workspace] Updating file info for active file');
       updateFileInfo(file.content, file.id);
     }
   }
-  console.log('[Workspace] setActiveFileId COMPLETE');
 }
 
 export function setCursorPosition(line: number, column: number): void {
@@ -972,10 +971,15 @@ export async function saveFileAs(id: string): Promise<void> {
 if (typeof window !== 'undefined') {
   (
     window as unknown as {
-      __kodeWorkspace?: { activeFileId: () => string | null; openFileIds: () => string[] };
+      __kodeWorkspace?: {
+        activeFileId: () => string | null;
+        openFileIds: () => string[];
+        openFile: (path: string, name: string) => Promise<void>;
+      };
     }
   ).__kodeWorkspace = {
     activeFileId: () => activeFileId,
     openFileIds: () => openFiles.map((f) => f.id),
+    openFile,
   };
 }

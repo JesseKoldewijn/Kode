@@ -1,4 +1,4 @@
-import { track, effect } from 'ripple';
+import { track, effect, trackSplit } from 'ripple';
 import { EditorTabs } from '../editor/EditorTabs.ripple';
 import { Breadcrumbs } from '../editor/Breadcrumbs.ripple';
 import { RustEditor } from '../editor/RustEditor.ripple';
@@ -7,16 +7,47 @@ import { SettingsPage } from '../settings/SettingsPage.ripple';
 import {
   updateFileContent,
   openFile,
+  getActiveFile,
   subscribeToCursorPosition,
   subscribeToGoToLine,
   isSpecialTab,
 } from '../../lib/workspace';
 import type { OpenFile, CursorPosition } from '../../lib/workspace';
+import type { Tracked } from 'ripple';
 import { subscribeToAction } from '../../lib/keybindings';
 import { editorEngine } from '../../lib/editor-engine';
 
-export component EditorArea(props: { activeFile: OpenFile | null }) {
-  const activeFile = () => props.activeFile;
+export component EditorArea(props: {
+  activeFileRef?: Tracked<OpenFile | null> | null;
+  activeFile?: OpenFile | null;
+}) {
+  const [activeFileRefProp, rest] = trackSplit(props, ['activeFileRef']);
+  const activeFileOverride = (rest as { activeFile?: OpenFile | null }).activeFile;
+  // Local state synced from ref + event so template re-renders when active file changes
+  // (Ripple may not re-run child template when only a ref's value changes.)
+  let fileState = track<OpenFile | null>(
+    activeFileOverride !== undefined ? activeFileOverride : (@activeFileRefProp ?? getActiveFile())
+  );
+  effect(() => {
+    const handler = () => {
+      if (activeFileOverride === undefined) {
+        @fileState = getActiveFile();
+      }
+    };
+    window.addEventListener('workspace-active-file-changed', handler);
+    return () => window.removeEventListener('workspace-active-file-changed', handler);
+  });
+  effect(() => {
+    if (activeFileOverride !== undefined) {
+      @fileState = activeFileOverride;
+    } else {
+      const fromRef = @activeFileRefProp;
+      const next = fromRef ?? getActiveFile();
+      if (next !== @fileState) {
+        @fileState = next;
+      }
+    }
+  });
   let currentCursor = track<CursorPosition>({ line: 1, column: 1 });
 
   // Go to Line dialog state
@@ -41,42 +72,42 @@ export component EditorArea(props: { activeFile: OpenFile | null }) {
   // Note: Save and Close are handled by the global keybinding manager in App.ripple
   effect(() => {
     const unsubscribeGoToLine = subscribeToAction('editor.goToLine', () => {
-      const file = activeFile();
+      const file = getActiveFile();
       if (file && !isSpecialTab(file)) {
         @goToLineOpen = true;
       }
     });
 
     const unsubscribeFind = subscribeToAction('edit.find', () => {
-      const file = activeFile();
+      const file = getActiveFile();
       if (file && !isSpecialTab(file)) {
         @openFind = true;
       }
     });
 
     const unsubscribeFindReplace = subscribeToAction('edit.findReplace', () => {
-      const file = activeFile();
+      const file = getActiveFile();
       if (file && !isSpecialTab(file)) {
         @openFindReplace = true;
       }
     });
 
     const unsubscribeFocusEditor = subscribeToAction('editor.focusEditor', () => {
-      const file = activeFile();
+      const file = getActiveFile();
       if (file && !isSpecialTab(file)) {
         @focusEditor = true;
       }
     });
 
     const unsubscribeGoToLineExternal = subscribeToGoToLine((line: number) => {
-      const file = activeFile();
+      const file = getActiveFile();
       if (file && !isSpecialTab(file)) {
         @goToLineTarget = line;
       }
     });
 
     const unsubscribeGoToDefinition = subscribeToAction('editor.goToDefinition', () => {
-      const file = activeFile();
+      const file = getActiveFile();
       if (!file || isSpecialTab(file)) return;
       const bufferId = file.id;
       editorEngine.getSelections(bufferId).then((selSet) => {
@@ -86,13 +117,15 @@ export component EditorArea(props: { activeFile: OpenFile | null }) {
       }).then((locations) => {
         if (!locations || locations.length === 0) return;
         const loc = locations[0];
-        return openFile(loc.path).then(() =>
-          editorEngine.setSelections(loc.path, [{
-            anchorLine: loc.startLine,
-            anchorCol: loc.startCharacter,
-            headLine: loc.startLine,
-            headCol: loc.startCharacter,
-          }])
+        return openFile(loc.path).then(
+          () => editorEngine.setSelections(loc.path, [
+            {
+              anchorLine: loc.startLine,
+              anchorCol: loc.startCharacter,
+              headLine: loc.startLine,
+              headCol: loc.startCharacter,
+            },
+          ]),
         );
       }).catch((err) => {
         console.debug('[EditorArea] Go to definition:', err);
@@ -122,12 +155,7 @@ export component EditorArea(props: { activeFile: OpenFile | null }) {
     @goToLineOpen = false;
   };
 
-  // Calculate max lines for active file
-  const getMaxLines = () => {
-    const file = activeFile();
-    if (!file) return 1;
-    return file.content.split('\n').length;
-  };
+  const getMaxLines = (file: OpenFile | null) => (file ? file.content.split('\n').length : 1);
 
   // Consume goToLineTarget for CodeEditor
   const goToLine = @goToLineTarget;
@@ -176,36 +204,31 @@ export component EditorArea(props: { activeFile: OpenFile | null }) {
     }
   });
 
-  // Check if active file is a special tab
-  const isSettingsTab = () => {
-    const file = activeFile();
-    return file?.specialTab === 'settings' || file?.specialTab === 'settings-keybindings';
-  };
+  const isSettingsTab = (file: OpenFile | null) => file?.specialTab === 'settings' ||
+    file?.specialTab === 'settings-keybindings';
 
-  const getSettingsInitialTab = () => {
-    const file = activeFile();
-    if (file?.specialTab === 'settings-keybindings') {
-      return 'keybindings';
-    }
-    return 'general';
-  };
+  const getSettingsInitialTab = (file: OpenFile | null) => file?.specialTab ===
+  'settings-keybindings'
+    ? 'keybindings'
+    : 'general';
 
-  <div class="flex flex-col h-full bg-editor-bg" data-testid="editor-area">
+  const file =
+    activeFileOverride !== undefined ? activeFileOverride : @fileState;
+  const displayFile = activeFileOverride !== undefined ? activeFileOverride : @fileState;
+  // Use @fileState inside the template (not only in displayFile) so Ripple re-runs this block when fileState changes from the workspace-active-file-changed event.
+  <div class="flex flex-col h-full bg-editor-bg" data-testid="editor-area" data-current-file-id={(activeFileOverride !== undefined ? activeFileOverride : @fileState)?.id ?? 'null'}>
     <EditorTabs />
     <Breadcrumbs />
 
     <div class="flex-1 min-h-0 relative">
-      if (isSettingsTab()) {
+      if (isSettingsTab(activeFileOverride !== undefined ? activeFileOverride : @fileState)) {
         <div class="absolute inset-0 overflow-auto">
-          <SettingsPage initialTab={getSettingsInitialTab()} />
+          <SettingsPage initialTab={getSettingsInitialTab(activeFileOverride !== undefined ? activeFileOverride : @fileState)} />
         </div>
-      } else if (activeFile() && !isSpecialTab(activeFile())) {
-        const file = activeFile();
-        <div class="absolute inset-0" data-testid="editor-container" data-active-file-id={file.id}>
-          <RustEditor
-            file={file}
-            onContentChange={handleContentChange}
-          />
+      } else if ((activeFileOverride !== undefined ? activeFileOverride : @fileState) && !isSpecialTab(activeFileOverride !== undefined ? activeFileOverride : @fileState)) {
+        const currentFile = activeFileOverride !== undefined ? activeFileOverride : @fileState;
+        <div class="absolute inset-0" data-testid="editor-container" data-active-file-id={currentFile.id}>
+          <RustEditor key={currentFile.id} file={currentFile} onContentChange={handleContentChange} />
         </div>
       } else {
         <div class="absolute inset-0 flex items-center justify-center">
@@ -219,7 +242,7 @@ export component EditorArea(props: { activeFile: OpenFile | null }) {
                 d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"
               />
             </svg>
-            <h2 class="text-2xl font-medium text-text-primary m-0 mb-2">{'JereKode'}</h2>
+            <h2 class="text-2xl font-medium text-text-primary m-0 mb-2">{'Kode'}</h2>
             <p class="text-[13px] text-text-muted m-0 mb-6">{'No file is open'}</p>
             <div class="flex flex-col gap-2 w-full">
               <div
@@ -260,7 +283,7 @@ export component EditorArea(props: { activeFile: OpenFile | null }) {
 
     <GoToLineDialog
       isOpen={goToLineOpen}
-      maxLine={getMaxLines()}
+      maxLine={getMaxLines(file)}
       currentLine={@currentCursor.line}
       onGoToLine={handleGoToLine}
       onClose={handleGoToLineClose}

@@ -48,16 +48,13 @@ export component StatusBar() {
     let lspCheckTimeouts: ReturnType<typeof setTimeout>[] = [];
 
     const checkLsp = (path: string, onlyIfStillActive = false) => {
-      editorEngine
-        .getLspHasSession(path)
-        .then((hasSession) => {
-          if (onlyIfStillActive && getActiveFile()?.path !== path) return;
-          @lspActive = hasSession;
-        })
-        .catch(() => {
-          if (onlyIfStillActive && getActiveFile()?.path !== path) return;
-          @lspActive = false;
-        });
+      editorEngine.getLspHasSession(path).then((hasSession) => {
+        if (onlyIfStillActive && getActiveFile()?.path !== path) return;
+        @lspActive = hasSession;
+      }).catch(() => {
+        if (onlyIfStillActive && getActiveFile()?.path !== path) return;
+        @lspActive = false;
+      });
     };
 
     const unsubscribe = subscribeToActiveFile(() => {
@@ -257,18 +254,16 @@ export component StatusBar() {
       </button>
 
       <span
-        class="flex items-center gap-1 px-1.5 h-[22px] whitespace-nowrap"
-        title={
-          @lspActive
-            ? 'Language server active (diagnostics, completion, hover)'
-            : @lspSupported
-              ? 'LSP (run with Tauri and install language server for this language)'
-              : undefined
-        }
+        class="flex items-center gap-1 cursor-pointer px-1.5 h-[22px] whitespace-nowrap"
+        title={@lspActive
+          ? 'Language server active (diagnostics, completion, hover)'
+          : @lspSupported
+            ? 'LSP Language Server missing for this language'
+            : undefined}
       >
         {@language}
         if (@lspSupported) {
-          <span class={{ 'text-text-muted': !@lspActive }}>{' • LSP'}</span>
+          <span class={{ 'text-amber-500': !@lspActive }}>{' - LSP'}</span>
         }
       </span>
     </div>

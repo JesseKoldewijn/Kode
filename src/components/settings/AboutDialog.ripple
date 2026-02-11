@@ -51,7 +51,7 @@ export component AboutDialog(props: AboutDialogProps) {
       class="relative bg-bg-surface border border-border-default rounded-lg shadow-xl w-[400px] animate-slideDown"
     >
       <header class="flex items-center justify-between px-5 py-4 border-b border-border-muted">
-        <h2 class="text-base font-semibold text-text-primary m-0">{'About JereKode'}</h2>
+        <h2 class="text-base font-semibold text-text-primary m-0">{'About Kode'}</h2>
         <button
           class="p-1 text-text-muted hover:text-text-primary rounded transition-colors"
           aria-label="Close About dialog"
@@ -87,7 +87,7 @@ export component AboutDialog(props: AboutDialogProps) {
             </svg>
           </div>
           <div>
-            <h3 class="text-lg font-bold text-text-primary m-0">{'JereKode'}</h3>
+            <h3 class="text-lg font-bold text-text-primary m-0">{'Kode'}</h3>
             <p class="text-sm text-text-muted mt-0.5">{'Version 0.0.1'}</p>
           </div>
         </div>
@@ -137,7 +137,7 @@ export component AboutDialog(props: AboutDialogProps) {
         <div class="flex items-center gap-3">
           <button
             class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded-md transition-colors"
-            onClick={() => handleOpenLink('https://github.com/JereKode/JereKode')}
+            onClick={() => handleOpenLink('https://github.com/Kode/Kode')}
           >
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
               <path
@@ -148,7 +148,7 @@ export component AboutDialog(props: AboutDialogProps) {
           </button>
           <button
             class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded-md transition-colors"
-            onClick={() => handleOpenLink('https://github.com/JereKode/JereKode/issues')}
+            onClick={() => handleOpenLink('https://github.com/Kode/Kode/issues')}
           >
             <svg
               class="w-4 h-4"

@@ -15,7 +15,7 @@ import { ConfirmDialog, type ConfirmDialogResult } from '../common/ConfirmDialog
 
 export component EditorTabs() {
   let currentActiveId = track<string | null>(activeFileId);
-  let filesVersion = track(0); // Used to trigger re-render when files change
+  let openFilesList = track<OpenFile[]>([]);
 
   // Dialog state
   let dialogOpen = track(false);
@@ -25,14 +25,16 @@ export component EditorTabs() {
   let dragFromIndex = track(-1);
   let dragOverIndex = track(-1);
 
-  // Subscribe to state changes
+  // Subscribe to state changes and keep reactive copy of openFiles (plain array is not reactive)
   effect(() => {
+    @openFilesList = [...openFiles];
+
     const unsubscribeActive = subscribeToActiveFile((id) => {
       @currentActiveId = id;
     });
 
     const unsubscribeFiles = subscribeToOpenFiles(() => {
-      @filesVersion = @filesVersion + 1;
+      @openFilesList = [...openFiles];
     });
 
     return () => {
@@ -162,15 +164,12 @@ export component EditorTabs() {
     }
   };
 
-  // Consume filesVersion to ensure reactivity
-  const _version = @filesVersion;
-
   <div
     class="flex items-end h-9 bg-bg-surface border-b border-border-default"
     data-testid="editor-tabs"
   >
     <div class="flex items-end overflow-x-auto scrollbar-none">
-      for (const file of openFiles; index i) {
+      for (const file of @openFilesList; index i) {
         const isActive = file.id === @currentActiveId;
         const isSettings = isSpecialTab(file);
         const isDragOver = i === @dragOverIndex && @dragFromIndex !== i;
