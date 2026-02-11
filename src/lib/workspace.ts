@@ -352,6 +352,23 @@ function applyStatusesToNodes(
 // File Tree Operations
 // ============================================================================
 
+/**
+ * Cursor-style sort: directories first, then names starting with non-alphanumeric
+ * (e.g. .git, .yarn) before alphabetic, then case-insensitive alphabetical.
+ */
+function sortDirectoryEntriesCursorStyle(entries: FileEntry[]): void {
+  const leadingSpecial = (name: string): boolean =>
+    name.length > 0 && !/^[a-zA-Z0-9]/.test(name.charAt(0));
+
+  entries.sort((a, b) => {
+    if (a.is_directory !== b.is_directory) return a.is_directory ? -1 : 1;
+    const aSpecial = leadingSpecial(a.name);
+    const bSpecial = leadingSpecial(b.name);
+    if (aSpecial !== bSpecial) return aSpecial ? -1 : 1;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' });
+  });
+}
+
 function fileEntryToNode(entry: FileEntry): FileTreeNode {
   return {
     id: entry.path,
@@ -373,6 +390,7 @@ export async function loadWorkspace(path: string): Promise<void> {
 
   try {
     const entries = await fs.readDirectory(path);
+    sortDirectoryEntriesCursorStyle(entries);
     const nodes = entries.map((entry) => fileEntryToNode(entry));
     fileTree.push(...nodes);
     notifyFileTreeChangeSubscribers();
@@ -391,6 +409,7 @@ export async function loadDirectory(node: FileTreeNode): Promise<void> {
 
   try {
     const entries = await fs.readDirectory(node.path);
+    sortDirectoryEntriesCursorStyle(entries);
     const children = entries.map((entry) => fileEntryToNode(entry));
     node.children = children;
     notifyFileTreeChangeSubscribers();
@@ -417,27 +436,49 @@ export async function loadDirectory(node: FileTreeNode): Promise<void> {
 }
 
 export async function toggleDirectory(node: FileTreeNode): Promise<FileTreeNode> {
-  if (!node.isDirectory) return node;
+  if (!node.isDirectory) {
+    return node;
+  }
 
-  // Create a new node object to trigger reactivity
-  let updatedNode: FileTreeNode;
+  // Load children if needed
+  if (!node.isExpanded && node.children === null) {
+    await loadDirectory(node);
+  }
 
-  if (!node.isExpanded) {
-    if (node.children === null) {
-      await loadDirectory(node);
+  // Toggle the expanded state
+  node.isExpanded = !node.isExpanded;
+
+  // Notify subscribers that the tree has changed
+  notifyFileTreeChangeSubscribers();
+
+  return node;
+}
+
+/**
+ * Flattens the file tree into a single array of visible nodes with depth information.
+ * Only includes nodes whose parent folders are expanded.
+ *
+ * @param nodes - Root-level nodes to flatten
+ * @param depth - Current depth level (default 0 for root)
+ * @returns Flat array of {node, depth} objects representing visible tree nodes
+ */
+export function flattenVisibleNodes(
+  nodes: FileTreeNode[],
+  depth: number = 0
+): Array<{ node: FileTreeNode; depth: number }> {
+  const result: Array<{ node: FileTreeNode; depth: number }> = [];
+
+  for (const node of nodes) {
+    // Add the current node
+    result.push({ node, depth });
+
+    // If it's a directory and expanded, recursively add children
+    if (node.isDirectory && node.isExpanded && node.children) {
+      result.push(...flattenVisibleNodes(node.children, depth + 1));
     }
-    updatedNode = { ...node, isExpanded: true };
-  } else {
-    updatedNode = { ...node, isExpanded: false };
   }
 
-  // Update the node in fileTree array
-  const index = fileTree.findIndex((n) => n.id === node.id);
-  if (index !== -1) {
-    fileTree[index] = updatedNode;
-  }
-
-  return updatedNode;
+  return result;
 }
 
 export async function refreshWorkspace(): Promise<void> {
@@ -929,7 +970,11 @@ export async function saveFileAs(id: string): Promise<void> {
 
 // Debug: expose workspace state in dev for E2E/debugging (e.g. scripts/debug-editor-content.ts)
 if (typeof window !== 'undefined') {
-  (window as unknown as { __kodeWorkspace?: { activeFileId: () => string | null; openFileIds: () => string[] } }).__kodeWorkspace = {
+  (
+    window as unknown as {
+      __kodeWorkspace?: { activeFileId: () => string | null; openFileIds: () => string[] };
+    }
+  ).__kodeWorkspace = {
     activeFileId: () => activeFileId,
     openFileIds: () => openFiles.map((f) => f.id),
   };

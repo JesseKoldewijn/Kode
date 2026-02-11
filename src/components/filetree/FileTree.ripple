@@ -1,5 +1,5 @@
 import { track, effect } from 'ripple';
-import { FileNode } from './FileNode.ripple';
+import { FileNodeRow } from './FileNodeRow.ripple';
 import { ContextMenu, type ContextMenuAction, type ContextMenuState } from './ContextMenu.ripple';
 import { ConfirmDialog, type ConfirmDialogResult } from '../common/ConfirmDialog.ripple';
 import {
@@ -16,6 +16,7 @@ import {
   renamePath,
   subscribeToWorkspacePath,
   subscribeToFileTreeChanges,
+  flattenVisibleNodes,
 } from '../../lib/workspace';
 import type { FileTreeNode } from '../../lib/workspace';
 import { shell, dialog } from '../../lib/tauri';
@@ -28,6 +29,7 @@ export component FileTree() {
   let newItemParent = track<string | null>(null);
   let currentWorkspacePath = track<string | null>(workspacePath);
   let nodes = track<FileTreeNode[]>([]);
+  const visibleNodes = track(() => flattenVisibleNodes(@nodes));
 
   // Context menu state
   let contextMenu = track<ContextMenuState>({ isOpen: false, x: 0, y: 0, node: null });
@@ -100,6 +102,14 @@ export component FileTree() {
     @selectedId = node.id;
     if (!node.isDirectory) {
       openFile(node.path, node.name);
+    }
+  };
+
+  const handleNodeClick = (e: MouseEvent, node: FileTreeNode) => {
+    e.stopPropagation();
+    handleSelect(node);
+    if (node.isDirectory) {
+      handleToggle(node);
     }
   };
 
@@ -386,13 +396,12 @@ export component FileTree() {
           {'Loading...'}
         </div>
         <div class={{ hidden: @nodes.length === 0 }}>
-          for (const node of @nodes) {
-            <FileNode
+          for (const { node, depth } of @visibleNodes) {
+            <FileNodeRow
               {node}
-              depth={0}
-              {selectedId}
-              onSelect={handleSelect}
-              onToggle={handleToggle}
+              {depth}
+              isSelected={@selectedId === node.id}
+              onClick={handleNodeClick}
               onContextMenu={handleNodeContextMenu}
               key={node.id}
             />

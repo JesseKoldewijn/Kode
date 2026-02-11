@@ -69,12 +69,31 @@ pub async fn read_directory(path: String) -> Result<Vec<FileEntry>, String> {
         });
     }
     
-    // Sort: directories first, then alphabetically
+    // Sort: directories first, then leading-special names (e.g. .git) before
+    // leading-alphanumeric, then case-insensitive alphabetical
     entries.sort_by(|a, b| {
         match (a.is_directory, b.is_directory) {
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            _ => {
+                let a_special = a
+                    .name
+                    .chars()
+                    .next()
+                    .map(|c| !c.is_alphanumeric())
+                    .unwrap_or(false);
+                let b_special = b
+                    .name
+                    .chars()
+                    .next()
+                    .map(|c| !c.is_alphanumeric())
+                    .unwrap_or(false);
+                match (a_special, b_special) {
+                    (true, false) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                    _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                }
+            }
         }
     });
     

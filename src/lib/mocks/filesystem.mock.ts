@@ -43,6 +43,21 @@ function toFileEntry(file: MockFile): {
   };
 }
 
+/** Cursor-style sort: directories first, leading-special names first, then case-insensitive name */
+function sortEntriesCursorStyle(
+  entries: Array<{ name: string; is_directory: boolean }>
+): void {
+  const leadingSpecial = (name: string): boolean =>
+    name.length > 0 && !/^[a-zA-Z0-9]/.test(name.charAt(0));
+  entries.sort((a, b) => {
+    if (a.is_directory !== b.is_directory) return a.is_directory ? -1 : 1;
+    const aSpecial = leadingSpecial(a.name);
+    const bSpecial = leadingSpecial(b.name);
+    if (aSpecial !== bSpecial) return aSpecial ? -1 : 1;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' });
+  });
+}
+
 /**
  * Handle filesystem commands
  */
@@ -111,9 +126,10 @@ function handleReadDirectory(path: string): unknown {
     // If the path doesn't exist but wasn't created, it's an error
     // But for the demo workspace root, we'll be lenient
     if (path === getDemoWorkspacePath() || path === '/demo-project') {
-      const demoChildren = getMockDirectoryChildren('/demo-project');
-      console.log(`[Mock FS] Returning demo workspace root: ${demoChildren?.length || 0} entries`);
-      return demoChildren?.map(toFileEntry) || [];
+      const demoEntries = getMockDirectoryChildren('/demo-project')?.map(toFileEntry) || [];
+      sortEntriesCursorStyle(demoEntries);
+      console.log(`[Mock FS] Returning demo workspace root: ${demoEntries.length} entries`);
+      return demoEntries;
     }
     console.error(`[Mock FS] Directory not found: ${path}`);
     throw new Error(`Directory not found: ${path}`);
@@ -128,6 +144,7 @@ function handleReadDirectory(path: string): unknown {
     }
   }
 
+  sortEntriesCursorStyle(entries);
   console.log(`[Mock FS] readDirectory: ${path} -> ${entries.length} entries`);
   return entries;
 }

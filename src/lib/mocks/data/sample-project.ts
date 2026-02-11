@@ -132,6 +132,119 @@ export interface ApiResponse<T> {
 }
 `,
         },
+        {
+          name: 'components',
+          path: '/demo-project/src/components',
+          isDirectory: true,
+          isSymlink: false,
+          size: 0,
+          modified: HOUR_AGO,
+          gitStatus: null,
+          children: [
+            {
+              name: 'chat',
+              path: '/demo-project/src/components/chat',
+              isDirectory: true,
+              isSymlink: false,
+              size: 0,
+              modified: HOUR_AGO,
+              gitStatus: null,
+              children: [
+                {
+                  name: 'ChatPanel.ripple',
+                  path: '/demo-project/src/components/chat/ChatPanel.ripple',
+                  isDirectory: false,
+                  isSymlink: false,
+                  size: 512,
+                  modified: HOUR_AGO,
+                  gitStatus: null,
+                  content: `export component ChatPanel() {
+  {"Chat panel placeholder"}
+}
+`,
+                },
+                {
+                  name: 'ChatInput.ripple',
+                  path: '/demo-project/src/components/chat/ChatInput.ripple',
+                  isDirectory: false,
+                  isSymlink: false,
+                  size: 256,
+                  modified: HOUR_AGO,
+                  gitStatus: null,
+                  content: `export component ChatInput() {
+  {"Chat input placeholder"}
+}
+`,
+                },
+              ],
+            },
+            {
+              name: 'editor',
+              path: '/demo-project/src/components/editor',
+              isDirectory: true,
+              isSymlink: false,
+              size: 0,
+              modified: HOUR_AGO,
+              gitStatus: null,
+              children: [
+                {
+                  name: 'EditorTabs.ripple',
+                  path: '/demo-project/src/components/editor/EditorTabs.ripple',
+                  isDirectory: false,
+                  isSymlink: false,
+                  size: 320,
+                  modified: HOUR_AGO,
+                  gitStatus: null,
+                  content: `export component EditorTabs() {
+  {"Editor tabs placeholder"}
+}
+`,
+                },
+              ],
+            },
+          ],
+        },
+        {
+          name: 'lib',
+          path: '/demo-project/src/lib',
+          isDirectory: true,
+          isSymlink: false,
+          size: 0,
+          modified: HOUR_AGO,
+          gitStatus: null,
+          children: [
+            {
+              name: 'workspace.ts',
+              path: '/demo-project/src/lib/workspace.ts',
+              isDirectory: false,
+              isSymlink: false,
+              size: 1024,
+              modified: DAY_AGO,
+              gitStatus: null,
+              content: `/**
+ * Workspace utilities
+ */
+export function getWorkspacePath(): string {
+  return '/demo-project';
+}
+`,
+            },
+            {
+              name: 'theme.ts',
+              path: '/demo-project/src/lib/theme.ts',
+              isDirectory: false,
+              isSymlink: false,
+              size: 256,
+              modified: DAY_AGO,
+              gitStatus: null,
+              content: `/**
+ * Theme utilities
+ */
+export type Theme = 'dark' | 'light' | 'system';
+`,
+            },
+          ],
+        },
       ],
     },
     {

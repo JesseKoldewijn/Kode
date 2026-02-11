@@ -1,0 +1,127 @@
+import type { FileTreeNode } from '../../lib/workspace';
+
+export component FileNodeRow(props: {
+  node: FileTreeNode;
+  depth: number;
+  isSelected: boolean;
+  onClick: (e: MouseEvent, node: FileTreeNode) => void;
+  onContextMenu: (e: MouseEvent, node: FileTreeNode) => void;
+}) {
+  const paddingLeft = 12 + props.depth * 16;
+
+  const getFileIcon = (name: string) => {
+    const ext = name.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'ts':
+      case 'tsx':
+        return { color: '#3178c6', icon: 'TS' };
+      case 'js':
+      case 'jsx':
+        return { color: '#f7df1e', icon: 'JS' };
+      case 'json':
+        return { color: '#cbcb41', icon: '{}' };
+      case 'md':
+        return { color: '#519aba', icon: 'M' };
+      case 'css':
+        return { color: '#563d7c', icon: '#' };
+      case 'html':
+        return { color: '#e34c26', icon: '<>' };
+      case 'rs':
+        return { color: '#dea584', icon: 'Rs' };
+      case 'py':
+        return { color: '#3572a5', icon: 'Py' };
+      case 'toml':
+        return { color: '#9c4121', icon: 'T' };
+      case 'lock':
+        return { color: '#6e6e6e', icon: 'L' };
+      case 'ripple':
+        return { color: '#61dafb', icon: '~' };
+      case 'ico':
+      case 'png':
+      case 'jpg':
+      case 'jpeg':
+      case 'gif':
+      case 'svg':
+      case 'webp':
+        return { color: '#a074c4', icon: 'I' };
+      default:
+        return { color: '#6e6e6e', icon: 'F' };
+    }
+  };
+
+  <div
+    data-testid={`filetree-node:${props.node.path}`}
+    class={{
+      'flex items-center h-[22px] cursor-pointer text-[13px] transition-colors duration-100 hover:bg-bg-hover select-none': true,
+      'bg-bg-active': props.isSelected,
+    }}
+    style={{ paddingLeft: `${paddingLeft}px` }}
+    onClick={(e: MouseEvent) => props.onClick(e, props.node)}
+    onContextMenu={(e: MouseEvent) => props.onContextMenu(e, props.node)}
+  >
+    <svg
+      class={{
+        'w-4 h-4 mr-1 text-text-muted shrink-0 animate-spin': true,
+        hidden: !props.node.isDirectory || !props.node.isLoading,
+      }}
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+      <path
+        class="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+      />
+    </svg>
+    <svg
+      data-testid={`filetree-toggle:${props.node.path}`}
+      class={{
+        'w-4 h-4 mr-1 text-text-muted shrink-0 transition-transform duration-150': true,
+        'rotate-90': props.node.isExpanded,
+        hidden: !props.node.isDirectory || props.node.isLoading,
+      }}
+      fill="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+    </svg>
+    <span class={{ 'w-4 mr-1': true, hidden: props.node.isDirectory }} />
+
+    <svg
+      class={{ 'w-4 h-4 mr-1.5 shrink-0 text-warning': true, hidden: !props.node.isDirectory }}
+      fill="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d={props.node.isExpanded
+          ? 'M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z'
+          : 'M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z'}
+      />
+    </svg>
+    <span
+      class={{
+        'w-4 h-4 mr-1.5 shrink-0 text-[10px] font-bold flex items-center justify-center rounded-sm': true,
+        hidden: props.node.isDirectory,
+      }}
+      style={{ color: getFileIcon(props.node.name).color }}
+    >
+      {getFileIcon(props.node.name).icon}
+    </span>
+
+    <span class="flex-1 truncate text-text-primary">{props.node.name}</span>
+
+    <span
+      class={{
+        'ml-auto mr-2 text-[11px] font-medium': true,
+        'text-success': props.node.gitStatus === 'A',
+        'text-warning': props.node.gitStatus === 'M',
+        'text-error': props.node.gitStatus === 'D',
+        'text-info': props.node.gitStatus === '?',
+        hidden: !props.node.gitStatus,
+      }}
+    >
+      {props.node.gitStatus || ''}
+    </span>
+  </div>
+}
