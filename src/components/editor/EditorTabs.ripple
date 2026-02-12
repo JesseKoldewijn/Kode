@@ -1,4 +1,4 @@
-import { track, effect } from 'ripple';
+import { track, effect, flushSync, set as rippleSet } from 'ripple';
 import {
   openFiles,
   activeFileId,
@@ -30,7 +30,7 @@ export component EditorTabs() {
     @openFilesList = [...openFiles];
 
     const unsubscribeActive = subscribeToActiveFile((id) => {
-      @currentActiveId = id;
+      rippleSet(currentActiveId, id);
     });
 
     const unsubscribeFiles = subscribeToOpenFiles(() => {
@@ -91,7 +91,8 @@ export component EditorTabs() {
   };
 
   const handleSelectFile = (id: string) => {
-    setActiveFileId(id);
+    // Run in flushSync so EditorArea/Breadcrumbs/App subscription updates apply in same turn
+    flushSync(() => setActiveFileId(id));
   };
 
   const handleDragStart = (e: DragEvent, index: number) => {
@@ -168,7 +169,7 @@ export component EditorTabs() {
     class="flex items-end h-9 bg-bg-surface border-b border-border-default"
     data-testid="editor-tabs"
   >
-    <div class="flex items-end overflow-x-auto scrollbar-none">
+    <div class="flex items-end overflow-x-auto scrollbar-none min-w-0">
       for (const file of @openFilesList; index i) {
         const isActive = file.id === @currentActiveId;
         const isSettings = isSpecialTab(file);
@@ -177,9 +178,9 @@ export component EditorTabs() {
         <button
           data-testid={`editor-tab:${file.id}`}
           class={{
-            'group flex items-center gap-2 h-[34px] px-3 text-xs border-r border-border-muted cursor-pointer transition-all duration-150 relative': true,
-            'bg-bg-surface text-text-secondary hover:bg-bg-hover': !isActive,
-            'bg-editor-bg text-text-primary': isActive,
+            'group flex items-center gap-2 h-[35px] pt-2 px-3 text-xs cursor-pointer transition-all duration-150 relative': true,
+            'bg-transparent text-text-muted hover:bg-bg-hover hover:text-text-secondary': !isActive,
+            'bg-editor-bg text-text-primary border-b-2 border-b-accent': isActive,
             'opacity-50': @dragFromIndex === i,
             'border-l-2 border-l-accent': isDragOver,
           }}

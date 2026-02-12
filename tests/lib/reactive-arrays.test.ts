@@ -135,7 +135,7 @@ describe('Reactive Array Regression Tests', () => {
     it('should mount without errors with empty search results', async () => {
       const { Sidebar } = await import('../../src/components/layout/Sidebar.ripple');
 
-      const { container, cleanup: c } = mountComponent(Sidebar);
+      const { container, cleanup: c } = mountComponent(Sidebar, { activeTab: 'explorer' });
       cleanup = c;
 
       // Should render the sidebar
@@ -149,21 +149,12 @@ describe('Reactive Array Regression Tests', () => {
     it('should switch to search tab without errors', async () => {
       const { Sidebar } = await import('../../src/components/layout/Sidebar.ripple');
 
-      const { container, cleanup: c } = mountComponent(Sidebar);
+      const { container, cleanup: c } = mountComponent(Sidebar, { activeTab: 'search' });
       cleanup = c;
 
-      // Find the search button (should have magnifying glass icon)
-      const buttons = Array.from(container.querySelectorAll('button'));
-      const searchButton = buttons.find((btn) => btn.innerHTML.includes('M21 21l-5.197-5.197'));
-
-      if (searchButton) {
-        searchButton.click();
-        await new Promise((r) => setTimeout(r, 50));
-
-        // Should show search input
-        const searchInput = container.querySelector('input[placeholder*="search"]');
-        expect(searchInput).toBeTruthy();
-      }
+      // With search tab active, search input should be visible
+      const searchInput = container.querySelector('input[placeholder*="search"]');
+      expect(searchInput).toBeTruthy();
     });
   });
 
@@ -209,7 +200,7 @@ describe('Reactive Array Regression Tests', () => {
       const components = [
         { Component: ChatPanel, props: { onSend: vi.fn() } },
         { Component: CommandPalette, props: { isOpen: false, onClose: vi.fn() } },
-        { Component: Sidebar, props: {} },
+        { Component: Sidebar, props: { activeTab: 'explorer' } },
         { Component: SourceControl, props: {} },
       ];
 

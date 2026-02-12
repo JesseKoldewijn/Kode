@@ -36,13 +36,14 @@ export component ContextMenu(props: {
     };
 
     // Defer to avoid catching the contextmenu click itself
-    requestAnimationFrame(() => {
+    const rafId = requestAnimationFrame(() => {
       window.addEventListener('click', handleClick);
       window.addEventListener('contextmenu', handleClick);
     });
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
+      cancelAnimationFrame(rafId);
       window.removeEventListener('click', handleClick);
       window.removeEventListener('contextmenu', handleClick);
       window.removeEventListener('keydown', handleKeyDown);

@@ -1,5 +1,6 @@
-import { track, effect } from 'ripple';
+import { track, effect, set as rippleSet } from 'ripple';
 import { StatusBar } from './components/layout/StatusBar.ripple';
+import { ActivityBar, type ActivityTab } from './components/layout/ActivityBar.ripple';
 import { Sidebar } from './components/layout/Sidebar.ripple';
 import { Panel } from './components/layout/Panel.ripple';
 import { EditorArea } from './components/layout/EditorArea.ripple';
@@ -55,6 +56,7 @@ export component App() {
   let isChatVisible = track(true);
   let isSidebarVisible = track(true);
   let isPanelVisible = track(true);
+  let sidebarActiveTab = track<ActivityTab>('explorer');
   let keybindingManager = track<KeybindingManager | null>(null);
   let isAboutOpen = track(false);
 
@@ -62,13 +64,13 @@ export component App() {
   let activeFile = track<OpenFile | null>(getActiveFile());
   effect(() => {
     const unsubscribe = subscribeToActiveFile(() => {
-      @activeFile = getActiveFile();
+      rippleSet(activeFile, getActiveFile());
     });
     return unsubscribe;
   });
   effect(() => {
     const handler = () => {
-      @activeFile = getActiveFile();
+      rippleSet(activeFile, getActiveFile());
     };
     window.addEventListener('workspace-active-file-changed', handler);
     return () => window.removeEventListener('workspace-active-file-changed', handler);
@@ -203,9 +205,10 @@ export component App() {
         previousTab();
         break;
 
-      // Find in files - ensure sidebar is visible and emit to Sidebar
+      // Find in files - ensure sidebar is visible, switch to search tab, emit
       case 'edit.findInFiles':
         @isSidebarVisible = true;
+        @sidebarActiveTab = 'search';
         emitAction('edit.findInFiles');
         break;
 
@@ -318,14 +321,20 @@ export component App() {
   // Listen for native menu events from Tauri
   effect(() => {
     let unlisten: (() => void) | null = null;
+    let cancelled = false;
 
     events.listen<string>('menu-action', (payload) => {
       handleAction(payload);
     }).then((fn) => {
-      unlisten = fn;
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
     });
 
     return () => {
+      cancelled = true;
       if (unlisten) unlisten();
     };
   });
@@ -374,6 +383,12 @@ export component App() {
 
   <div class="flex flex-col w-screen h-screen overflow-hidden bg-bg-base text-text-primary">
     <div class="flex flex-1 min-h-0 overflow-hidden">
+      if (@isSidebarVisible) {
+        <ActivityBar
+          activeTab={@sidebarActiveTab}
+          onTabChange={(tab) => (@sidebarActiveTab = tab)}
+        />
+      }
       <aside
         class={{
           'shrink-0 bg-sidebar-bg border-r border-border-default overflow-hidden': true,
@@ -381,7 +396,7 @@ export component App() {
         }}
         style={`width: ${@sidebarWidth}px`}
       >
-        <Sidebar />
+        <Sidebar activeTab={@sidebarActiveTab} />
       </aside>
 
       if (@isSidebarVisible) {

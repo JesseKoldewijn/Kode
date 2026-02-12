@@ -22,11 +22,12 @@ export component GoToLineDialog(props: GoToLineDialogProps) {
       @inputValue = (currentLine || 1).toString();
       @errorMessage = '';
       // Focus input after a small delay for DOM to render
-      setTimeout(() => {
+      const id = setTimeout(() => {
         if (@inputRef) {
           @inputRef.select();
         }
       }, 0);
+      return () => clearTimeout(id);
     }
   });
 

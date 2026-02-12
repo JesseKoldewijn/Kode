@@ -1,0 +1,27 @@
+import { track, effect, set as rippleSet, mount, flushSync } from 'ripple';
+
+const subs: Array<(v: number) => void> = [];
+function subscribe(cb: (v: number) => void) {
+  subs.push(cb);
+  return () => {
+    const i = subs.indexOf(cb);
+    if (i >= 0) subs.splice(i, 1);
+  };
+}
+export function notify(v: number) {
+  subs.forEach((c) => c(v));
+}
+export function resetSubs() {
+  subs.length = 0;
+}
+
+export component SubscriberTest() {
+  let value = track(0);
+  effect(() => {
+    const unsub = subscribe((v) => {
+      rippleSet(value, v);
+    });
+    return unsub;
+  });
+  <div data-testid="value">{@value}</div>;
+}

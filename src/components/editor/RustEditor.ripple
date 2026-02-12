@@ -1,4 +1,4 @@
-import { track, effect, trackSplit } from 'ripple';
+import { track, effect, trackSplit, set as rippleSet } from 'ripple';
 import {
   editorEngine,
   type ViewportHighlights,
@@ -27,19 +27,10 @@ export component RustEditor(props: {
   effect(() => {
     const next = @fileProp ?? getActiveFile();
     if (next?.id !== @file?.id) {
-      @file = next ?? null;
+      rippleSet(file, next ?? null);
     } else if (!next && @file) {
-      @file = null;
+      rippleSet(file, null);
     }
-  });
-
-  // Sync @file when workspace dispatches active-file-changed (reliable when parent does not re-render)
-  effect(() => {
-    const handler = () => {
-      @file = getActiveFile();
-    };
-    window.addEventListener('workspace-active-file-changed', handler);
-    return () => window.removeEventListener('workspace-active-file-changed', handler);
   });
 
   let scrollTop = track(0);
@@ -65,27 +56,28 @@ export component RustEditor(props: {
   let foldedStartLines = track<number[]>([]);
   let wordWrap = track(false);
 
-  // Initialize/reset local content when file or fileProp changes (re-runs when @file or @fileProp changes)
+  // Initialize/reset local content when file or fileProp changes (re-runs when @file or @fileProp changes).
+  // Use rippleSet so updates propagate in same flush when tab is switched via flushSync.
   effect(() => {
     const fromProp = @fileProp ?? getActiveFile();
     const currentFile = @file ?? fromProp;
     if (currentFile) {
-        if (@currentFileId !== currentFile.id) {
-        @file = currentFile;
-        @localContent = currentFile.content;
-        @serverVersion = 0;
-        @pendingEdits = 0;
-        @scrollTop = 0;
-        @selections = [
+      if (@currentFileId !== currentFile.id) {
+        rippleSet(file, currentFile);
+        rippleSet(localContent, currentFile.content);
+        rippleSet(serverVersion, 0);
+        rippleSet(pendingEdits, 0);
+        rippleSet(scrollTop, 0);
+        rippleSet(selections, [
           { anchorLine: 0, anchorCol: 0, headLine: 0, headCol: 0 },
-        ];
-        @currentFileId = currentFile.id;
-        @foldRanges = null;
-        @foldedStartLines = [];
+        ]);
+        rippleSet(currentFileId, currentFile.id);
+        rippleSet(foldRanges, null);
+        rippleSet(foldedStartLines, []);
       }
     } else {
-      @localContent = null;
-      @currentFileId = null;
+      rippleSet(localContent, null);
+      rippleSet(currentFileId, null);
     }
   });
 
@@ -522,7 +514,7 @@ export component RustEditor(props: {
     }
 
     // Handle find overlay (Ctrl+F / Cmd+F)
-    if (e.key === 'f' && e.ctrlKey || e.metaKey) {
+    if (e.key === 'f' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       @showFindOverlay = true;
       return;
@@ -562,8 +554,8 @@ export component RustEditor(props: {
       }
     }
 
-    // Trigger completion (Ctrl+Space)
-    if (e.key === ' ' && e.ctrlKey || e.metaKey) {
+    // Trigger completion (Ctrl+Space / Cmd+Space)
+    if (e.key === ' ' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       editorEngine.getLspCompletion(@file.id, currentSel.headLine, currentSel.headCol).then(
         (items) => {
@@ -578,7 +570,7 @@ export component RustEditor(props: {
     }
 
     // Handle Undo (Ctrl+Z / Cmd+Z)
-    if (e.key === 'z' && e.ctrlKey || e.metaKey && !e.shiftKey) {
+    if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
       e.preventDefault();
       try {
         const result = await editorEngine.undo(@file.id);
@@ -596,8 +588,8 @@ export component RustEditor(props: {
 
     // Handle Redo (Ctrl+Y / Cmd+Shift+Z)
     if (
-      e.key === 'y' && e.ctrlKey || e.metaKey ||
-        e.key === 'z' && e.ctrlKey || e.metaKey && e.shiftKey
+      (e.key === 'y' && (e.ctrlKey || e.metaKey)) ||
+      (e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey)
     ) {
       e.preventDefault();
       try {
@@ -791,18 +783,43 @@ export component RustEditor(props: {
     };
   });
 
-  <div class="relative h-full w-full bg-[#1e1e1e] text-white">
+  // Clean up mouse move throttle timer on unmount
+  effect(() => {
+    return () => {
+      if (mouseMoveThrottleTimer !== null) {
+        clearTimeout(mouseMoveThrottleTimer);
+        mouseMoveThrottleTimer = null;
+      }
+    };
+  });
+
+  // Prefer @file (from subscription) over prop - subscription can update before parent re-renders.
+  // Since EditorArea recreates RustEditor with a new key when file changes, these values
+  // are correctly initialized for each file. We use track() to make them reactive in the template.
+  let displayFile = track(@file ?? @fileProp ?? getActiveFile());
+  let editorContent = track(
+    @displayFile && @currentFileId === @displayFile.id
+      ? (@localContent ?? @displayFile.content ?? '')
+      : (@displayFile?.content ?? '')
+  );
+
+  // Keep editorContent in sync with localContent changes (user typing)
+  effect(() => {
+    const df = @displayFile;
+    if (df && @currentFileId === df.id) {
+      rippleSet(editorContent, @localContent ?? df.content ?? '');
+    }
+  });
+
+  <div class="relative h-full w-full bg-editor-bg text-text-primary">
     <div {ref containerRef} class="relative h-full w-full overflow-y-auto" {onScroll}>
-      const editorContent =
-        (@file && @currentFileId === @file.id ? @localContent ?? @file.content : @file?.content) ??
-          '';
       const contentLineCount =
-        editorContent === '' ? 1 : editorContent.split('\n').length;
+        @editorContent === '' ? 1 : @editorContent.split('\n').length;
       const scrollTotalLines = Math.max(@minimapTotalLines, contentLineCount);
       <div style={{ height: scrollTotalLines * 20 + 'px' }} aria-hidden="true" />
       <div
         class="absolute left-0 top-0 right-0 flex w-full"
-        style={{ height: @containerHeight || 400 + 'px' }}
+        style={{ height: (@containerHeight || 400) + 'px' }}
       >
         const gutterTotalLines = scrollTotalLines;
         <div class="flex-shrink-0">
@@ -816,11 +833,11 @@ export component RustEditor(props: {
             onToggleFold={toggleFoldAtLine}
           />
         </div>
-        <div class="flex-1 min-w-0 relative" data-editor-buffer-id={@file?.id ?? ''}>
-          for (const fid of [@file?.id ?? '']; key fid) {
+        <div class="flex-1 min-w-0 relative" data-editor-buffer-id={@displayFile?.id ?? ''}>
+          for (const fid of [@displayFile?.id ?? '']; key fid) {
             <EditorViewport
-              bufferId={@file?.id ?? null}
-              content={editorContent === '' ? null : editorContent}
+              bufferId={@displayFile?.id ?? null}
+              content={@editorContent === '' ? null : @editorContent}
               {@scrollTop}
               viewportHeight={@containerHeight || 400}
               lineHeight={20}
@@ -836,7 +853,7 @@ export component RustEditor(props: {
           if (@showCompletion && @completionItems.length > 0 && @selections.length > 0) {
             const cursorLine = @selections[0].headLine;
             <div
-              class="absolute left-2 right-2 max-h-[200px] overflow-auto rounded border border-white/20 bg-[#252526] shadow-lg z-20 py-1"
+              class="absolute left-2 right-2 max-h-[200px] overflow-auto rounded border border-border-default bg-bg-elevated shadow-lg z-20 py-1"
               style={{ top: (cursorLine + 1) * 20 + 'px' }}
               data-testid="completion-list"
             >
@@ -874,7 +891,7 @@ export component RustEditor(props: {
     </div>
 
     <EditorOverlay
-      bufferId={@file?.id || null}
+      bufferId={@displayFile?.id ?? null}
       visible={@showFindOverlay}
       onClose={() => {
         @showFindOverlay = false;

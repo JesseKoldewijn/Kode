@@ -20,10 +20,10 @@
      Semantic Colors - Dark Theme (Default)
      ------------------------------------------------------------------------- */
 
-  /* Backgrounds */
-  --bg-base: #0f0f0f;
-  --bg-surface: #171717;
-  --bg-elevated: #1f1f1f;
+  /* Backgrounds - Cursor-inspired deeper black */
+  --bg-base: #0a0a0a;
+  --bg-surface: #111111;
+  --bg-elevated: #1a1a1a;
   --bg-overlay: #262626;
   --bg-muted: #2a2a2a;
   --bg-subtle: #333333;
@@ -33,9 +33,9 @@
   --bg-active: #363636;
   --bg-selected: #264f78;
 
-  /* Borders */
-  --border-default: #333333;
-  --border-muted: #262626;
+  /* Borders - softer, less visible */
+  --border-default: #2a2a2a;
+  --border-muted: #1f1f1f;
   --border-emphasis: #404040;
   --border-active: #0078d4;
 
@@ -73,17 +73,28 @@
   --syntax-constant: #4fc1ff;
 
   /* Component-specific */
-  --sidebar-bg: #161616;
+  --sidebar-bg: #111111;
   --panel-bg: #1a1a1a;
-  --editor-bg: #1e1e1e;
+  --editor-bg: #1a1a1a;
   --terminal-bg: #0d0d0d;
-  --statusbar-bg: #0078d4;
-  --statusbar-text: #ffffff;
+  --statusbar-bg: #1a1a1a;
+  --statusbar-text: #e5e5e5;
 
-  /* Scrollbar */
+  /* Activity bar & tabs - Cursor style */
+  --activity-bar-bg: #0a0a0a;
+  --activity-bar-width: 48px;
+  --tab-active-bg: #1a1a1a;
+  --tab-inactive-bg: transparent;
+  --tab-border: #2a2a2a;
+  --input-bg: #1e1e1e;
+  --input-border: #404040;
+  --badge-bg: rgba(255, 255, 255, 0.1);
+
+  /* Scrollbar - thin Cursor style */
   --scrollbar-track: transparent;
   --scrollbar-thumb: #424242;
   --scrollbar-thumb-hover: #525252;
+  --scrollbar-width: 6px;
 
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -152,17 +163,27 @@
   --syntax-constant: #0070c1;
 
   /* Component-specific */
-  --sidebar-bg: #f8f8f8;
+  --sidebar-bg: #f3f3f3;
   --panel-bg: #fafafa;
   --editor-bg: #ffffff;
   --terminal-bg: #1e1e1e;
-  --statusbar-bg: #0066b8;
-  --statusbar-text: #ffffff;
+  --statusbar-bg: #f0f0f0;
+  --statusbar-text: #1a1a1a;
+
+  /* Activity bar & tabs - light mode */
+  --activity-bar-bg: #ececec;
+  --tab-active-bg: #ffffff;
+  --tab-inactive-bg: transparent;
+  --tab-border: #e0e0e0;
+  --input-bg: #ffffff;
+  --input-border: #d4d4d4;
+  --badge-bg: rgba(0, 0, 0, 0.06);
 
   /* Scrollbar */
   --scrollbar-track: transparent;
   --scrollbar-thumb: #c0c0c0;
   --scrollbar-thumb-hover: #a0a0a0;
+  --scrollbar-width: 6px;
 
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
@@ -214,12 +235,20 @@
     --syntax-variable: #001080;
     --syntax-type: #267f99;
     --syntax-constant: #0070c1;
-    --sidebar-bg: #f8f8f8;
+    --sidebar-bg: #f3f3f3;
     --panel-bg: #fafafa;
     --editor-bg: #ffffff;
     --terminal-bg: #1e1e1e;
-    --statusbar-bg: #0066b8;
-    --statusbar-text: #ffffff;
+    --statusbar-bg: #f0f0f0;
+    --statusbar-text: #1a1a1a;
+    --activity-bar-bg: #ececec;
+    --tab-active-bg: #ffffff;
+    --tab-inactive-bg: transparent;
+    --tab-border: #e0e0e0;
+    --input-bg: #ffffff;
+    --input-border: #d4d4d4;
+    --badge-bg: rgba(0, 0, 0, 0.06);
+    --scrollbar-width: 6px;
     --scrollbar-track: transparent;
     --scrollbar-thumb: #c0c0c0;
     --scrollbar-thumb-hover: #a0a0a0;
@@ -277,6 +306,14 @@
   --color-terminal-bg: var(--terminal-bg);
   --color-statusbar-bg: var(--statusbar-bg);
   --color-statusbar-text: var(--statusbar-text);
+
+  --color-activity-bar-bg: var(--activity-bar-bg);
+  --color-tab-active-bg: var(--tab-active-bg);
+  --color-tab-inactive-bg: var(--tab-inactive-bg);
+  --color-tab-border: var(--tab-border);
+  --color-input-bg: var(--input-bg);
+  --color-input-border: var(--input-border);
+  --color-badge-bg: var(--badge-bg);
 
   /* Editor-specific colors for CodeMirror */
   --color-editor-line-number: var(--text-muted);
@@ -357,8 +394,8 @@ body {
    ============================================================================ */
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: var(--scrollbar-width, 6px);
+  height: var(--scrollbar-width, 6px);
 }
 
 ::-webkit-scrollbar-track {

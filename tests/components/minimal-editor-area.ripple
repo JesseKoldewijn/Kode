@@ -1,0 +1,50 @@
+import { track, effect, trackSplit, set as rippleSet } from 'ripple';
+import {
+  getActiveFile,
+  subscribeToActiveFile,
+  isSpecialTab,
+} from '../../src/lib/workspace';
+import type { OpenFile } from '../../src/lib/workspace';
+import type { Tracked } from 'ripple';
+import { EditorTabs } from '../../src/components/editor/EditorTabs.ripple';
+import { Breadcrumbs } from '../../src/components/editor/Breadcrumbs.ripple';
+import { RustEditor } from '../../src/components/editor/RustEditor.ripple';
+
+// Strip-down of EditorArea: same structure (trackSplit, props, subscription, event)
+// but no child components - to isolate reactivity issues
+export component MinimalEditorArea(props: {
+  activeFileRef?: Tracked<OpenFile | null> | null;
+  activeFile?: OpenFile | null;
+}) {
+  const [activeFileRefProp, activeFileProp, rest] = trackSplit(props, ['activeFileRef', 'activeFile']);
+  let fileState = track<OpenFile | null>(
+    @activeFileRefProp ?? @activeFileProp ?? getActiveFile()
+  );
+
+  effect(() => {
+    const unsubscribe = subscribeToActiveFile(() => {
+      rippleSet(fileState, getActiveFile());
+    });
+    return unsubscribe;
+  });
+  effect(() => {
+    const handler = () => {
+      rippleSet(fileState, getActiveFile());
+    };
+    window.addEventListener('workspace-active-file-changed', handler);
+    return () => window.removeEventListener('workspace-active-file-changed', handler);
+  });
+
+  <div data-testid="editor-area" data-current-file-id={@fileState?.id ?? 'null'}>
+    <EditorTabs />
+    <Breadcrumbs />
+    if (@fileState && !isSpecialTab(@fileState)) {
+      const currentFile = @fileState;
+      <div data-testid="editor-container" data-active-file-id={currentFile.id}>
+        <RustEditor key={currentFile.id} file={currentFile} onContentChange={() => {}} />
+      </div>
+    } else {
+      <span>{"File: "}{@fileState?.id ?? 'null'}</span>
+    }
+  </div>;
+}

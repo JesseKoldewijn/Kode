@@ -96,7 +96,7 @@ export component EditorLine(props: {
     >
       if (selectionRange !== null && selectionRange.start < selectionRange.end) {
         <div 
-          class="absolute top-0 h-full bg-[#264f78] pointer-events-none"
+          class="absolute top-0 h-full bg-bg-selected pointer-events-none"
           style={{ 
             left: (selectionRange.start * CHAR_WIDTH) + 'px', 
             width: ((selectionRange.end - selectionRange.start) * CHAR_WIDTH) + 'px' 

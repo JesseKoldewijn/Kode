@@ -154,9 +154,15 @@ describe('Reactive Array Performance', () => {
     cleanup();
   });
 
-  it('should measure memory usage remains reasonable', () => {
-    // Basic memory sanity check
+  it.skip('should measure memory usage remains reasonable (Chrome-only API)', () => {
+    // Note: performance.memory is a non-standard Chrome-only API that does not exist in jsdom.
+    // This test is skipped in non-Chrome environments. Run in a real browser for memory profiling.
     const initialMemory = (performance as any).memory?.usedJSHeapSize || 0;
+
+    // Skip if memory API not available (jsdom, Firefox, Safari)
+    if (initialMemory === 0) {
+      return;
+    }
 
     // Create and destroy multiple components
     for (let i = 0; i < 5; i++) {
@@ -169,8 +175,6 @@ describe('Reactive Array Performance', () => {
 
     // Memory should not grow excessively (allow 10MB growth max)
     const memoryGrowth = finalMemory - initialMemory;
-    if (initialMemory > 0) {
-      expect(memoryGrowth).toBeLessThan(10 * 1024 * 1024); // 10MB
-    }
+    expect(memoryGrowth).toBeLessThan(10 * 1024 * 1024); // 10MB
   });
 });

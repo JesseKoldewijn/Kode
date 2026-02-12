@@ -62,9 +62,7 @@ test.describe('File switching (mocked backend)', () => {
     await expect(editorArea.getByText('greet(user.name)')).toBeVisible();
   });
 
-  test.skip('editor content updates when switching to second file via quick open', async ({
-    page,
-  }) => {
+  test('editor content updates when switching to second file via quick open', async ({ page }) => {
     const palette = page.getByTestId('command-palette');
     await triggerAction(page, 'view.quickOpen', 800);
     await page.locator('#command-palette-input').waitFor({ state: 'attached', timeout: 10000 });
@@ -125,11 +123,12 @@ test.describe('File switching (mocked backend)', () => {
     });
 
     await page.getByTestId('editor-tab:/demo-project/src/utils.ts').click();
-    await page.waitForTimeout(500);
-    await expect(
-      editorArea.locator('[data-active-file-id="/demo-project/src/utils.ts"]')
-    ).toBeVisible({ timeout: 10000 });
-    await expect(editorArea.getByText('Utility functions')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(1500);
+
+    await expect(editorArea).toHaveAttribute('data-current-file-id', '/demo-project/src/utils.ts', {
+      timeout: 10000,
+    });
+    await expect(editorArea.getByText('Utility functions')).toBeVisible({ timeout: 15000 });
 
     await page.getByTestId('editor-tab:/demo-project/src/main.ts').click();
     await page.waitForTimeout(500);
@@ -140,7 +139,7 @@ test.describe('File switching (mocked backend)', () => {
     await expect(editorArea.getByText('Utility functions')).toBeVisible({ timeout: 10000 });
   });
 
-  test.skip('editor content updates when switching tabs by clicking tab', async ({ page }) => {
+  test('editor content updates when switching tabs by clicking tab', async ({ page }) => {
     const palette = page.getByTestId('command-palette');
     await triggerAction(page, 'view.quickOpen', 800);
     await page.locator('#command-palette-input').waitFor({ state: 'attached', timeout: 10000 });
@@ -158,7 +157,7 @@ test.describe('File switching (mocked backend)', () => {
     const editorArea = page.getByTestId('editor-area');
     await expect(editorArea.getByText('Utility functions')).toBeVisible({ timeout: 10000 });
 
-    await page.getByTestId('editor-tabs').getByRole('button', { name: 'main.ts' }).click();
+    await page.getByTestId('editor-tab:/demo-project/src/main.ts').click();
     await page.waitForTimeout(500);
 
     await expect(editorArea.getByText('Main entry point')).toBeVisible({ timeout: 10000 });

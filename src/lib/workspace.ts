@@ -264,14 +264,11 @@ export function setWorkspacePath(path: string | null): void {
 export function setActiveFileId(id: string | null): void {
   activeFileId = id;
   notifyActiveFileSubscribers();
-  // Dispatch event so EditorArea/RustEditor listeners can sync.
   if (typeof window !== 'undefined') {
-    requestAnimationFrame(() => {
-      if (typeof window !== 'undefined' && (window as unknown as { __DEBUG_EDITOR_AREA__?: boolean }).__DEBUG_EDITOR_AREA__) {
-        console.log('[Workspace] Dispatching workspace-active-file-changed', id);
-      }
-      window.dispatchEvent(new CustomEvent('workspace-active-file-changed', { detail: id }));
-    });
+    if ((window as unknown as { __DEBUG_EDITOR_AREA__?: boolean }).__DEBUG_EDITOR_AREA__) {
+      console.log('[Workspace] Dispatching workspace-active-file-changed', id);
+    }
+    window.dispatchEvent(new CustomEvent('workspace-active-file-changed', { detail: id }));
   }
 
   // Update file info for the newly active file
@@ -522,21 +519,16 @@ export function getLanguageFromPath(path: string): string {
 }
 
 export async function openFile(path: string, name: string): Promise<void> {
-  console.log('[Workspace] openFile START:', path);
-
   // Check if file is already open
   const existing = openFiles.find((f) => f.path === path);
   if (existing) {
-    console.log('[Workspace] File already open, activating:', path);
     // File is already open, just make it active
     setActiveFileId(existing.id);
     return;
   }
 
   try {
-    console.log('[Workspace] Reading file from disk:', path);
     const content = await fs.readFile(path);
-    console.log('[Workspace] File read complete, bytes:', content.length);
 
     const file: OpenFile = {
       id: path,
@@ -547,30 +539,24 @@ export async function openFile(path: string, name: string): Promise<void> {
       language: getLanguageFromPath(path),
     };
 
-    console.log('[Workspace] Adding file to openFiles array');
     openFiles.push(file);
-    console.log('[Workspace] Notifying subscribers');
     notifyOpenFilesSubscribers();
 
     // Shadow Mode: Open buffer in Rust engine
-    console.log('[Workspace] Calling editorEngine.openBuffer');
     editorEngine
       .openBuffer(path)
-      .then((info) => {
-        console.log('[Workspace] editorEngine.openBuffer resolved:', info);
+      .then(() => {
+        // Buffer opened successfully
       })
       .catch((err) => {
         console.warn('[Workspace] Failed to open shadow buffer in Rust:', err);
       });
 
     // Detect line ending info for the new file
-    console.log('[Workspace] Updating file info');
     updateFileInfo(content, file.id);
 
     // Set the newly opened file as active
-    console.log('[Workspace] Setting active file ID');
     setActiveFileId(file.id);
-    console.log('[Workspace] openFile COMPLETE:', path);
   } catch (error) {
     console.error('Failed to open file:', error);
   }

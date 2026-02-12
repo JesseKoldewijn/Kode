@@ -32,6 +32,9 @@ test('debug app', async ({ page }) => {
   console.log('\nErrors:', JSON.stringify(errors, null, 2));
   console.log('\nConsole Messages:', JSON.stringify(consoleMessages, null, 2));
 
-  // Always pass to see output
-  expect(true).toBe(true);
+  // Assert no page errors occurred during load
+  expect(errors, 'Expected no page errors during app load').toHaveLength(0);
+
+  // Assert the app element is visible
+  expect(appContent.visible, 'Expected app element to be visible').toBe(true);
 });

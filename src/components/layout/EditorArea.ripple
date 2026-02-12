@@ -1,4 +1,4 @@
-import { track, effect, trackSplit } from 'ripple';
+import { track, effect, trackSplit, set as rippleSet } from 'ripple';
 import { EditorTabs } from '../editor/EditorTabs.ripple';
 import { Breadcrumbs } from '../editor/Breadcrumbs.ripple';
 import { RustEditor } from '../editor/RustEditor.ripple';
@@ -8,6 +8,7 @@ import {
   updateFileContent,
   openFile,
   getActiveFile,
+  subscribeToActiveFile,
   subscribeToCursorPosition,
   subscribeToGoToLine,
   isSpecialTab,
@@ -21,32 +22,26 @@ export component EditorArea(props: {
   activeFileRef?: Tracked<OpenFile | null> | null;
   activeFile?: OpenFile | null;
 }) {
-  const [activeFileRefProp, rest] = trackSplit(props, ['activeFileRef']);
-  const activeFileOverride = (rest as { activeFile?: OpenFile | null }).activeFile;
-  // Local state synced from ref + event so template re-renders when active file changes
-  // (Ripple may not re-run child template when only a ref's value changes.)
+  const [activeFileRefProp, activeFileProp, rest] = trackSplit(props, ['activeFileRef', 'activeFile']);
+  // Sync fileState from workspace directly (like Breadcrumbs) so we never miss updates.
+  // Props/ref may not trigger Ripple re-renders reliably when parent updates.
   let fileState = track<OpenFile | null>(
-    activeFileOverride !== undefined ? activeFileOverride : (@activeFileRefProp ?? getActiveFile())
+    @activeFileRefProp ?? @activeFileProp ?? getActiveFile()
   );
   effect(() => {
+    const unsubscribe = subscribeToActiveFile(() => {
+      const newFile = getActiveFile();
+      rippleSet(fileState, newFile);
+    });
+    return unsubscribe;
+  });
+  effect(() => {
     const handler = () => {
-      if (activeFileOverride === undefined) {
-        @fileState = getActiveFile();
-      }
+      const newFile = getActiveFile();
+      rippleSet(fileState, newFile);
     };
     window.addEventListener('workspace-active-file-changed', handler);
     return () => window.removeEventListener('workspace-active-file-changed', handler);
-  });
-  effect(() => {
-    if (activeFileOverride !== undefined) {
-      @fileState = activeFileOverride;
-    } else {
-      const fromRef = @activeFileRefProp;
-      const next = fromRef ?? getActiveFile();
-      if (next !== @fileState) {
-        @fileState = next;
-      }
-    }
   });
   let currentCursor = track<CursorPosition>({ line: 1, column: 1 });
 
@@ -117,7 +112,8 @@ export component EditorArea(props: {
       }).then((locations) => {
         if (!locations || locations.length === 0) return;
         const loc = locations[0];
-        return openFile(loc.path).then(
+        const fileName = loc.path.split('/').pop() || loc.path;
+        return openFile(loc.path, fileName).then(
           () => editorEngine.setSelections(loc.path, [
             {
               anchorLine: loc.startLine,
@@ -170,37 +166,40 @@ export component EditorArea(props: {
   // Reset target after it's consumed
   effect(() => {
     if (@goToLineTarget !== null) {
-      // Reset after a tick so CodeEditor can consume it
-      setTimeout(() => {
+      const id = setTimeout(() => {
         @goToLineTarget = null;
       }, 0);
+      return () => clearTimeout(id);
     }
   });
 
   // Reset find flag after consumed
   effect(() => {
     if (@openFind) {
-      setTimeout(() => {
+      const id = setTimeout(() => {
         @openFind = false;
       }, 0);
+      return () => clearTimeout(id);
     }
   });
 
   // Reset find/replace flag after consumed
   effect(() => {
     if (@openFindReplace) {
-      setTimeout(() => {
+      const id = setTimeout(() => {
         @openFindReplace = false;
       }, 0);
+      return () => clearTimeout(id);
     }
   });
 
   // Reset focus editor flag after consumed
   effect(() => {
     if (@focusEditor) {
-      setTimeout(() => {
+      const id = setTimeout(() => {
         @focusEditor = false;
       }, 0);
+      return () => clearTimeout(id);
     }
   });
 
@@ -212,29 +211,28 @@ export component EditorArea(props: {
     ? 'keybindings'
     : 'general';
 
-  const file =
-    activeFileOverride !== undefined ? activeFileOverride : @fileState;
-  const displayFile = activeFileOverride !== undefined ? activeFileOverride : @fileState;
-  // Use @fileState inside the template (not only in displayFile) so Ripple re-runs this block when fileState changes from the workspace-active-file-changed event.
-  <div class="flex flex-col h-full bg-editor-bg" data-testid="editor-area" data-current-file-id={(activeFileOverride !== undefined ? activeFileOverride : @fileState)?.id ?? 'null'}>
+  const file = @fileState;
+  const displayFile = @fileState;
+  <div class="flex flex-col h-full bg-editor-bg" data-testid="editor-area" data-current-file-id={@fileState?.id ?? 'null'} data-active-file-id={@fileState?.id ?? ''}>
     <EditorTabs />
     <Breadcrumbs />
 
     <div class="flex-1 min-h-0 relative">
-      if (isSettingsTab(activeFileOverride !== undefined ? activeFileOverride : @fileState)) {
+      if (isSettingsTab(@fileState)) {
         <div class="absolute inset-0 overflow-auto">
-          <SettingsPage initialTab={getSettingsInitialTab(activeFileOverride !== undefined ? activeFileOverride : @fileState)} />
+          <SettingsPage initialTab={getSettingsInitialTab(@fileState)} />
         </div>
-      } else if ((activeFileOverride !== undefined ? activeFileOverride : @fileState) && !isSpecialTab(activeFileOverride !== undefined ? activeFileOverride : @fileState)) {
-        const currentFile = activeFileOverride !== undefined ? activeFileOverride : @fileState;
-        <div class="absolute inset-0" data-testid="editor-container" data-active-file-id={currentFile.id}>
-          <RustEditor key={currentFile.id} file={currentFile} onContentChange={handleContentChange} />
+      } else if (@fileState && !isSpecialTab(@fileState)) {
+        <div class="absolute inset-0" data-testid="editor-container" data-active-file-id={@fileState?.id ?? ''}>
+          for (const fileId of [@fileState.id]; key fileId) {
+            <RustEditor file={@fileState} onContentChange={handleContentChange} />
+          }
         </div>
       } else {
-        <div class="absolute inset-0 flex items-center justify-center">
-          <div class="flex flex-col items-center text-center max-w-[300px]">
+        <div class="absolute inset-0 flex items-center justify-center p-8">
+          <div class="flex flex-col items-center text-center max-w-[320px]">
             <svg
-              class="w-16 h-16 mb-4 text-text-muted opacity-30"
+              class="w-20 h-20 mb-6 text-text-muted opacity-25"
               viewBox="0 0 24 24"
               fill="currentColor"
             >
@@ -242,34 +240,34 @@ export component EditorArea(props: {
                 d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"
               />
             </svg>
-            <h2 class="text-2xl font-medium text-text-primary m-0 mb-2">{'Kode'}</h2>
-            <p class="text-[13px] text-text-muted m-0 mb-6">{'No file is open'}</p>
-            <div class="flex flex-col gap-2 w-full">
+            <h2 class="text-xl font-semibold text-text-primary m-0 mb-2">{'Kode'}</h2>
+            <p class="text-[13px] text-text-muted m-0 mb-8">{'No file is open'}</p>
+            <div class="flex flex-col gap-2.5 w-full">
               <div
-                class="flex items-center justify-between px-3 py-2 bg-bg-surface rounded-md text-xs"
+                class="flex items-center justify-between px-4 py-2.5 bg-bg-surface rounded-md text-xs border border-border-default/50 hover:border-border-default transition-colors"
               >
                 <kbd
-                  class="px-2 py-0.5 bg-bg-elevated border border-border-default rounded font-mono text-[11px] text-text-secondary"
+                  class="px-2 py-1 bg-bg-elevated border border-border-default rounded text-[11px] font-medium text-text-secondary"
                 >
                   {'Ctrl+P'}
                 </kbd>
                 <span class="text-text-muted">{'Quick Open'}</span>
               </div>
               <div
-                class="flex items-center justify-between px-3 py-2 bg-bg-surface rounded-md text-xs"
+                class="flex items-center justify-between px-4 py-2.5 bg-bg-surface rounded-md text-xs border border-border-default/50 hover:border-border-default transition-colors"
               >
                 <kbd
-                  class="px-2 py-0.5 bg-bg-elevated border border-border-default rounded font-mono text-[11px] text-text-secondary"
+                  class="px-2 py-1 bg-bg-elevated border border-border-default rounded text-[11px] font-medium text-text-secondary"
                 >
                   {'Ctrl+,'}
                 </kbd>
                 <span class="text-text-muted">{'Settings'}</span>
               </div>
               <div
-                class="flex items-center justify-between px-3 py-2 bg-bg-surface rounded-md text-xs"
+                class="flex items-center justify-between px-4 py-2.5 bg-bg-surface rounded-md text-xs border border-border-default/50 hover:border-border-default transition-colors"
               >
                 <kbd
-                  class="px-2 py-0.5 bg-bg-elevated border border-border-default rounded font-mono text-[11px] text-text-secondary"
+                  class="px-2 py-1 bg-bg-elevated border border-border-default rounded text-[11px] font-medium text-text-secondary"
                 >
                   {'Ctrl+`'}
                 </kbd>

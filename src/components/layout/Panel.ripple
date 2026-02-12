@@ -86,10 +86,10 @@ export component Panel(props?: { onClose?: () => void }) {
       <nav class="flex items-center gap-1 min-w-0 overflow-hidden">
         <button
           class={{
-            'flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium tracking-wide rounded bg-transparent border-none cursor-pointer transition-all duration-150 shrink-0': true,
-            'text-text-muted hover:text-text-secondary hover:bg-bg-hover': @activeTab !==
+            'flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-medium tracking-widest uppercase rounded-t bg-transparent border-none cursor-pointer transition-all duration-150 shrink-0 border-b-2 -mb-px': true,
+            'text-text-muted hover:text-text-secondary hover:bg-bg-hover border-b-transparent': @activeTab !==
               'terminal',
-            'text-text-primary bg-bg-active': @activeTab === 'terminal',
+            'text-text-primary border-b-accent': @activeTab === 'terminal',
           }}
           onClick={() => (@activeTab = 'terminal')}
         >
@@ -97,10 +97,10 @@ export component Panel(props?: { onClose?: () => void }) {
         </button>
         <button
           class={{
-            'flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium tracking-wide rounded bg-transparent border-none cursor-pointer transition-all duration-150 shrink-0': true,
-            'text-text-muted hover:text-text-secondary hover:bg-bg-hover': @activeTab !==
+            'flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-medium tracking-widest uppercase rounded-t bg-transparent border-none cursor-pointer transition-all duration-150 shrink-0 border-b-2 -mb-px': true,
+            'text-text-muted hover:text-text-secondary hover:bg-bg-hover border-b-transparent': @activeTab !==
               'problems',
-            'text-text-primary bg-bg-active': @activeTab === 'problems',
+            'text-text-primary border-b-accent': @activeTab === 'problems',
           }}
           onClick={() => (@activeTab = 'problems')}
         >
@@ -109,9 +109,9 @@ export component Panel(props?: { onClose?: () => void }) {
         </button>
         <button
           class={{
-            'flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium tracking-wide rounded bg-transparent border-none cursor-pointer transition-all duration-150 shrink-0': true,
-            'text-text-muted hover:text-text-secondary hover:bg-bg-hover': @activeTab !== 'output',
-            'text-text-primary bg-bg-active': @activeTab === 'output',
+            'flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-medium tracking-widest uppercase rounded-t bg-transparent border-none cursor-pointer transition-all duration-150 shrink-0 border-b-2 -mb-px': true,
+            'text-text-muted hover:text-text-secondary hover:bg-bg-hover border-b-transparent': @activeTab !== 'output',
+            'text-text-primary border-b-accent': @activeTab === 'output',
           }}
           onClick={() => (@activeTab = 'output')}
         >

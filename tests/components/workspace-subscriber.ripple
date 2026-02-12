@@ -1,0 +1,18 @@
+import { track, effect, set as rippleSet, trackSplit } from 'ripple';
+import { getActiveFile, subscribeToActiveFile } from '../../src/lib/workspace';
+import type { OpenFile } from '../../src/lib/workspace';
+
+// Minimal component that mirrors EditorArea's subscription + props pattern
+export component WorkspaceFileIdDisplay(props: { activeFile?: OpenFile | null }) {
+  const [activeFileProp, rest] = trackSplit(props, ['activeFile']);
+  let fileState = track<OpenFile | null>(@activeFileProp ?? getActiveFile());
+
+  effect(() => {
+    const unsubscribe = subscribeToActiveFile(() => {
+      rippleSet(fileState, getActiveFile());
+    });
+    return unsubscribe;
+  });
+
+  <div data-testid="workspace-file-id">{@fileState?.id ?? 'null'}</div>;
+}

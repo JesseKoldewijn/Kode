@@ -155,12 +155,12 @@ export component StatusBar() {
   };
 
   <footer
-    class="flex items-center justify-between h-[22px] px-2 bg-statusbar-bg text-statusbar-text text-[11px] shrink-0"
+    class="flex items-center justify-between h-[22px] px-2 bg-statusbar-bg text-statusbar-text text-[11px] shrink-0 border-t border-border-default"
   >
     <div class="flex items-center gap-0.5">
       <button
         class={{
-          'flex items-center gap-1 px-1.5 h-[22px] bg-transparent border-none text-inherit text-[11px] cursor-pointer rounded-sm hover:bg-white/10': true,
+          'flex items-center gap-1 px-1.5 h-[22px] bg-transparent border-none text-inherit text-[11px] cursor-pointer rounded-sm hover:bg-bg-hover': true,
           hidden: !@gitBranch,
         }}
         title="Source Control"
@@ -203,7 +203,7 @@ export component StatusBar() {
       <span class="flex items-center gap-1 px-1.5 h-[22px] whitespace-nowrap">{@lineEnding}</span>
 
       <button
-        class="flex items-center gap-1 px-1.5 h-[22px] bg-transparent border-none text-inherit text-[11px] cursor-pointer rounded-sm hover:bg-white/10 whitespace-nowrap"
+        class="flex items-center gap-1 px-1.5 h-[22px] bg-transparent border-none text-inherit text-[11px] cursor-pointer rounded-sm hover:bg-bg-hover whitespace-nowrap"
         onClick={() => resetZoom()}
         title={'Zoom: ' + @zoomLevel + '% (click to reset)'}
       >
@@ -219,7 +219,7 @@ export component StatusBar() {
       </button>
 
       <button
-        class="flex items-center gap-1 px-1.5 h-[22px] bg-transparent border-none text-inherit text-[11px] cursor-pointer rounded-sm hover:bg-white/10 whitespace-nowrap"
+        class="flex items-center gap-1 px-1.5 h-[22px] bg-transparent border-none text-inherit text-[11px] cursor-pointer rounded-sm hover:bg-bg-hover whitespace-nowrap"
         onClick={handleThemeToggle}
         title={'Theme: ' + @themeMode + ' (' + @themeName + ')'}
       >

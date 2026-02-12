@@ -16,7 +16,15 @@ export component EditorViewport(props: {
   onMouseMove: (line: number, col: number) => void;
   onMouseUp: () => void;
 }) {
-  const [content, bufferIdProp, rest] = trackSplit(props, ['content', 'bufferId']);
+  const [content, bufferIdProp, scrollTopProp, viewportHeightProp, lineHeightProp, foldRangesProp, foldedStartLinesProp, rest] = trackSplit(props, [
+    'content',
+    'bufferId',
+    'scrollTop',
+    'viewportHeight',
+    'lineHeight',
+    'foldRanges',
+    'foldedStartLines',
+  ]);
   let highlights = track<ViewportHighlights | null>(null);
   let highlightMap = track<Map<number, HighlightedLine>>(new Map());
   let diagnostics = track<LspDiagnostic[]>([]);
@@ -66,7 +74,7 @@ export component EditorViewport(props: {
   // Fetch LSP diagnostics when buffer is set (debounced; LSP sends after didOpen/didChange)
   effect(() => {
     const bid = @bufferIdProp;
-    if (!bid) return;
+    if (!bid) return () => {};
     if (diagnosticsTimer !== null) clearTimeout(diagnosticsTimer);
     diagnosticsTimer = setTimeout(() => {
       editorEngine.getLspDiagnostics(bid).then((list) => {
@@ -84,6 +92,13 @@ export component EditorViewport(props: {
         @diagnosticsByLine = byLine;
       }).catch(() => {});
     }, 400) as unknown as number;
+
+    return () => {
+      if (diagnosticsTimer !== null) {
+        clearTimeout(diagnosticsTimer);
+        diagnosticsTimer = null;
+      }
+    };
   });
 
   // Debounced highlight fetching
@@ -91,7 +106,7 @@ export component EditorViewport(props: {
     const bid = @bufferIdProp;
     if (!bid) {
       @highlights = null;
-      return;
+      return () => {};
     }
 
     // Clear existing timer
@@ -99,8 +114,8 @@ export component EditorViewport(props: {
       clearTimeout(highlightFetchTimer);
     }
 
-    const startLine = Math.floor(props.scrollTop / props.lineHeight);
-    const endLine = startLine + Math.ceil(props.viewportHeight / props.lineHeight) + 1;
+    const startLine = Math.floor(@scrollTopProp / @lineHeightProp);
+    const endLine = startLine + Math.ceil(@viewportHeightProp / @lineHeightProp) + 1;
 
     // Debounce by 50ms to reduce highlight fetches during rapid changes
     highlightFetchTimer = setTimeout(() => {
@@ -110,50 +125,70 @@ export component EditorViewport(props: {
         console.error('[EditorViewport] Failed to fetch highlights:', err);
       });
     }, 50) as unknown as number;
+
+    return () => {
+      if (highlightFetchTimer !== null) {
+        clearTimeout(highlightFetchTimer);
+        highlightFetchTimer = null;
+      }
+    };
   });
 
-  const contentLines = @content ? @content.split('\n') : [];
-  const logicalTotalLines =
-    contentLines.length > 0
-      ? contentLines.length
-      : (@cachedLines.length > 0 ? @cachedLines.length : (@highlights?.totalLines || 0));
+  // Clean up hover timer on unmount
+  effect(() => {
+    return () => {
+      if (hoverTimer !== null) {
+        clearTimeout(hoverTimer);
+        hoverTimer = null;
+      }
+    };
+  });
 
-  const foldedSet = new Set<number>(props.foldedStartLines);
-  const activeFoldedRanges = (props.foldRanges || []).filter((range) =>
-    foldedSet.has(range.startLine)
+  let contentLines = track(() => {
+    const c = @content;
+    return c ? c.split('\n') : [];
+  });
+
+  let logicalTotalLines = track(() => {
+    const lines = @contentLines;
+    return lines.length > 0
+      ? lines.length
+      : (@cachedLines.length > 0 ? @cachedLines.length : (@highlights?.totalLines || 0));
+  });
+
+  let foldedSet = track(() => new Set<number>(@foldedStartLinesProp));
+  let activeFoldedRanges = track(() =>
+    (@foldRangesProp || []).filter((range) => @foldedSet.has(range.startLine))
   );
 
-  const visibleLineNumbers = (() => {
+  let visibleLineNumbers = track(() => {
     const result: number[] = [];
+    const total = @logicalTotalLines;
+    const ranges = @activeFoldedRanges;
     let i = 0;
 
-    while (i < logicalTotalLines) {
-      const range = activeFoldedRanges.find((r) => r.startLine === i);
+    while (i < total) {
+      const range = ranges.find((r) => r.startLine === i);
       if (range) {
-        // Show only the start line for folded range
         result.push(i);
         i = range.endLine + 1;
       } else {
-        // Ensure we don't include interior lines of other folded ranges
-        const covered = activeFoldedRanges.some(
-          (r) => i > r.startLine && i <= r.endLine
-        );
+        const covered = ranges.some((r) => i > r.startLine && i <= r.endLine);
         if (!covered) {
           result.push(i);
         }
         i++;
       }
     }
-
     return result;
-  })();
+  });
 
-  const totalHeight = visibleLineNumbers.length * props.lineHeight;
-  const startIndex = Math.floor(props.scrollTop / props.lineHeight);
+  let totalHeight = track(() => @visibleLineNumbers.length * @lineHeightProp);
+  let startIndex = track(() => Math.floor(@scrollTopProp / @lineHeightProp));
 
-  const getLineText = (lineNum: number): string => {
-    if (contentLines.length > 0) {
-      return contentLines[lineNum] ?? '';
+  const getLineText = (lineNum: number, lines: string[]): string => {
+    if (lines.length > 0) {
+      return lines[lineNum] ?? '';
     }
     if (@cachedLines.length > 0) {
       return @cachedLines[lineNum] || '';
@@ -164,12 +199,11 @@ export component EditorViewport(props: {
     return '';
   };
 
-  const getVisibleLineNumbers = (): number[] => {
-    const endIndex =
-      startIndex + Math.ceil(props.viewportHeight / props.lineHeight) + 1;
+  const getVisibleLineNumbers = (visible: number[], start: number, vh: number, lh: number): number[] => {
+    const endIndex = start + Math.ceil(vh / lh) + 1;
     const result: number[] = [];
-    for (let i = startIndex; i < Math.min(endIndex, visibleLineNumbers.length); i++) {
-      result.push(visibleLineNumbers[i]);
+    for (let i = start; i < Math.min(endIndex, visible.length); i++) {
+      result.push(visible[i]);
     }
     return result;
   };
@@ -189,7 +223,7 @@ export component EditorViewport(props: {
     const charWidth = 7.8; // Approximate width for 13px monospace font
     const col = Math.max(0, Math.min(Math.floor(x / charWidth), lineText.length));
     
-    props.onMouseDown(lineNum, col);
+    @rest.onMouseDown(lineNum, col);
   };
 
   const handleLineMouseMove = (e: MouseEvent, lineNum: number, lineText: string) => {
@@ -205,43 +239,44 @@ export component EditorViewport(props: {
     const charWidth = 7.8;
     const col = Math.max(0, Math.min(Math.floor(x / charWidth), lineText.length));
 
-    props.onMouseMove(lineNum, col);
+    @rest.onMouseMove(lineNum, col);
 
-    if (props.bufferId) {
+    const bid = @bufferIdProp;
+    if (bid) {
       if (hoverTimer !== null) clearTimeout(hoverTimer);
       lastHoverLine = lineNum;
       lastHoverCol = col;
       hoverTimer = window.setTimeout(() => {
         hoverTimer = null;
-        editorEngine.getLspHover(props.bufferId!, lastHoverLine, lastHoverCol).then((result) => {
+        editorEngine.getLspHover(bid, lastHoverLine, lastHoverCol).then((result) => {
           @hoverContent = result?.contents ?? null;
         }).catch(() => {});
       }, 400);
     }
   };
 
-  <div class="relative w-full overflow-hidden font-mono text-[13px]" style={{ height: props.viewportHeight + 'px' }}>
+  <div class="relative w-full overflow-hidden font-mono text-[13px]" style={{ height: @viewportHeightProp + 'px' }}>
     if (@hoverContent) {
       <div
-        class="absolute top-1 right-2 max-w-[320px] max-h-[200px] overflow-auto rounded border border-white/20 bg-[#252526] shadow-lg z-30 px-3 py-2 text-[12px] text-white/90 whitespace-pre-wrap"
+        class="absolute top-1 right-2 max-w-[320px] max-h-[200px] overflow-auto rounded border border-border-default bg-bg-elevated shadow-lg z-30 px-3 py-2 text-[12px] text-text-primary whitespace-pre-wrap"
         data-testid="hover-tooltip"
       >
         {@hoverContent}
       </div>
     }
-    <div class="absolute w-full" style={{ height: totalHeight + 'px' }}>
-      <div class="absolute w-full" style={{ transform: `translateY(${startIndex * props.lineHeight}px)` }}>
-        for (const lineNum of getVisibleLineNumbers(); key `${@bufferIdProp}-${lineNum}`) {
+    <div class="absolute w-full" style={{ height: @totalHeight + 'px' }}>
+      <div class="absolute w-full" style={{ transform: `translateY(${@startIndex * @lineHeightProp}px)` }}>
+        for (const lineNum of getVisibleLineNumbers(@visibleLineNumbers, @startIndex, @viewportHeightProp, @lineHeightProp); key `${@bufferIdProp}-${lineNum}`) {
           <EditorLine 
             lineNum={lineNum}
-            lineText={getLineText(lineNum)}
+            lineText={getLineText(lineNum, @contentLines)}
             highlightLine={@highlightMap.get(lineNum) || null}
             diagnosticsForLine={@diagnosticsByLine.get(lineNum) ?? []}
-            selections={props.selections}
-            wordWrap={props.wordWrap}
+            selections={@rest.selections}
+            wordWrap={@rest.wordWrap}
             onMouseDown={handleLineMouseDown}
             onMouseMove={handleLineMouseMove}
-            onMouseUp={props.onMouseUp}
+            onMouseUp={@rest.onMouseUp}
           />
         }
       </div>

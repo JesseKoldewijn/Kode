@@ -142,13 +142,10 @@ async function handleSpawnTerminal(id: string, _shell?: string, cwd?: string): P
 
   console.log(`[Mock Terminal] Spawned terminal: ${id} at ${terminalCwd}`);
 
-  // Send welcome message
+  // send welcome message
   await emitTerminalOutput(
     id,
-    `\x1b[1;34mKode Mock Terminal\x1b[0m
-\x1b[90mRunning in browser demo mode. Type 'help' for available commands.\x1b[0m
-
-\x1b[32mdemo-user\x1b[0m@\x1b[34mjekode\x1b[0m:\x1b[33m${terminalCwd}\x1b[0m$ `
+    `\n\x1b[32mdemo-user\x1b[0m@\x1b[34mjekode\x1b[0m:\x1b[33m${terminalCwd}\x1b[0m$ `
   );
 }
 

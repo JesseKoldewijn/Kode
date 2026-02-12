@@ -52,7 +52,7 @@ export component FileNodeRow(props: {
   <div
     data-testid={`filetree-node:${props.node.path}`}
     class={{
-      'flex items-center h-[22px] cursor-pointer text-[13px] transition-colors duration-100 hover:bg-bg-hover select-none': true,
+      'flex items-center h-[22px] min-w-0 overflow-hidden cursor-pointer text-[13px] transition-colors duration-100 hover:bg-bg-hover select-none': true,
       'bg-bg-active': props.isSelected,
     }}
     style={{ paddingLeft: `${paddingLeft}px` }}

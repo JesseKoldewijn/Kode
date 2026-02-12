@@ -1,4 +1,4 @@
-import { track } from 'ripple';
+import { track, effect } from 'ripple';
 import type { Message } from './ChatPanel.ripple';
 
 type InlineSegment = { type: 'text'; content: string } | { type: 'bold'; content: string } | {
@@ -26,7 +26,7 @@ function parseInline(text: string): InlineSegment[] {
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
-  while (match = pattern.exec(text) !== null) {
+  while ((match = pattern.exec(text)) !== null) {
     // Add any text before this match
     if (match.index > lastIndex) {
       segments.push({ type: 'text', content: text.slice(lastIndex, match.index) });
@@ -111,7 +111,7 @@ function parseContent(content: string): ContentPart[] {
 }
 
 export component InlineContent(props: { segments: InlineSegment[] }) {
-  for (const seg of props.segments) {
+  for (const seg of props.segments; index i; key i) {
     if (seg.type === 'bold') {
       <strong class="font-semibold text-text-primary">{seg.content}</strong>
     } else if (seg.type === 'italic') {
@@ -137,15 +137,27 @@ export component InlineContent(props: { segments: InlineSegment[] }) {
 
 export component CodeBlock(props: { content: string; language: string }) {
   let copied = track(false);
+  let copyResetTimer: number | null = null;
 
   const handleCopy = () => {
+    if (copyResetTimer !== null) clearTimeout(copyResetTimer);
     navigator.clipboard.writeText(props.content).then(() => {
       @copied = true;
-      setTimeout(() => {
+      copyResetTimer = setTimeout(() => {
         @copied = false;
-      }, 2000);
+        copyResetTimer = null;
+      }, 2000) as unknown as number;
     });
   };
+
+  effect(() => {
+    return () => {
+      if (copyResetTimer !== null) {
+        clearTimeout(copyResetTimer);
+        copyResetTimer = null;
+      }
+    };
+  });
 
   <div class="my-2 rounded-md overflow-hidden border border-border-default">
     <div

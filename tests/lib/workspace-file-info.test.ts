@@ -182,14 +182,25 @@ describe('file info with active file changes', () => {
     const callback = vi.fn();
     subscribeToFileInfo(callback);
 
+    // First open a regular file to establish baseline file info
+    await openFile('/test/file.ts', 'file.ts');
+    const initialLineEnding = currentFileInfo.lineEnding;
+
     callback.mockClear();
 
     // Open settings tab (special tab)
     openSpecialTab('settings');
 
-    // File info should not be updated for special tabs
-    // The callback may or may not be called depending on implementation
-    // What matters is the lineEnding should remain from previous file
+    // File info should not change for special tabs
+    // The lineEnding should remain from the previous regular file
+    expect(currentFileInfo.lineEnding).toBe(initialLineEnding);
+
+    // The callback should not have been called with different line ending data
+    // (it may be called for other reasons, but not with file content analysis)
+    const fileInfoCalls = callback.mock.calls.filter(
+      (call) => call[0]?.lineEnding && call[0].lineEnding !== initialLineEnding
+    );
+    expect(fileInfoCalls).toHaveLength(0);
   });
 });
 

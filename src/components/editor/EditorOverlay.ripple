@@ -18,14 +18,14 @@ export component EditorOverlay(props: {
     if (!props.visible || !props.bufferId) {
       @matches = [];
       @activeIndex = 0;
-      return;
+      return () => {};
     }
 
     const currentQuery = @query;
     if (!currentQuery) {
       @matches = [];
       @activeIndex = 0;
-      return;
+      return () => {};
     }
 
     if (debounceTimer !== null) {
@@ -44,6 +44,13 @@ export component EditorOverlay(props: {
           console.error('[EditorOverlay] searchBuffer failed', err);
         });
     }, 100) as unknown as number;
+
+    return () => {
+      if (debounceTimer !== null) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+      }
+    };
   });
 
   const handleKeyDown = (event: KeyboardEvent) => {
@@ -103,11 +110,11 @@ export component EditorOverlay(props: {
 
   <div class="pointer-events-none">
     if (props.visible) {
-      <div class="absolute left-4 top-4 z-20 rounded bg-[#252526] px-3 py-2 text-xs text-white shadow-lg border border-white/10 pointer-events-auto">
+      <div class="absolute left-4 top-4 z-20 rounded bg-bg-elevated px-3 py-2 text-xs text-text-primary shadow-lg border border-border-default pointer-events-auto">
         <div class="flex items-center gap-2">
           <input
             {ref (el: HTMLInputElement) => @inputRef = el}
-            class="rounded bg-[#1e1e1e] px-2 py-1 text-xs outline-none border border-white/20"
+            class="rounded bg-bg-base px-2 py-1 text-xs outline-none border border-border-default"
             placeholder="Find in file"
             role="search"
             aria-label="Find in file"

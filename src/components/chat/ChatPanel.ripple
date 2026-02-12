@@ -41,6 +41,17 @@ Type your question below to get started!`,
   let unlistenExit = track<(() => void) | null>(null);
   let chatInputRef = track<HTMLTextAreaElement | null>(null);
   let scrollContainerRef = track<HTMLDivElement | null>(null);
+  let demoResponseTimer: number | null = null;
+
+  // Clean up demo response timer on unmount
+  effect(() => {
+    return () => {
+      if (demoResponseTimer !== null) {
+        clearTimeout(demoResponseTimer);
+        demoResponseTimer = null;
+      }
+    };
+  });
 
   // Auto-scroll to bottom when near the bottom
   const scrollToBottom = () => {
@@ -182,7 +193,9 @@ Type your question below to get started!`,
         console.error('Failed to send message:', error);
         @isLoading = false;
 
-        setTimeout(() => {
+        if (demoResponseTimer !== null) clearTimeout(demoResponseTimer);
+        demoResponseTimer = setTimeout(() => {
+          demoResponseTimer = null;
           const assistantMessage: Message = {
             id: `assistant-${Date.now()}`,
             role: 'assistant',
@@ -192,10 +205,12 @@ Type your question below to get started!`,
           @messages = [...@messages, assistantMessage];
           @isLoading = false;
           scrollToBottom();
-        }, 500);
+        }, 500) as unknown as number;
       }
     } else {
-      setTimeout(() => {
+      if (demoResponseTimer !== null) clearTimeout(demoResponseTimer);
+      demoResponseTimer = setTimeout(() => {
+        demoResponseTimer = null;
         const assistantMessage: Message = {
           id: `assistant-${Date.now()}`,
           role: 'assistant',
@@ -205,7 +220,7 @@ Type your question below to get started!`,
         @messages = [...@messages, assistantMessage];
         @isLoading = false;
         scrollToBottom();
-      }, 500);
+      }, 500) as unknown as number;
     }
   };
 

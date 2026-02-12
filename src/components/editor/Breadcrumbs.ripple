@@ -1,4 +1,4 @@
-import { track, effect } from 'ripple';
+import { track, effect, set as rippleSet } from 'ripple';
 import {
   subscribeToActiveFile,
   getActiveFile,
@@ -15,12 +15,12 @@ export component Breadcrumbs() {
     const unsubscribe = subscribeToActiveFile(() => {
       const file = getActiveFile();
       if (!file || isSpecialTab(file) || !file.path) {
-        @isVisible = false;
-        @segments = [];
+        rippleSet(isVisible, false);
+        rippleSet(segments, []);
         return;
       }
 
-      @isVisible = true;
+      rippleSet(isVisible, true);
       const wsPath = workspacePath;
       let relativePath = file.path;
       if (wsPath && file.path.startsWith(wsPath + '/')) {
@@ -31,13 +31,14 @@ export component Breadcrumbs() {
 
       // Split into path segments
       const parts = relativePath.split(/[/\\]/);
-      @segments = parts;
+      rippleSet(segments, parts);
     });
 
     return unsubscribe;
   });
 
   <div
+    data-testid="breadcrumbs"
     class={{
       'flex items-center h-[22px] px-3 bg-editor-bg border-b border-border-default text-[12px] text-text-muted overflow-x-auto scrollbar-none': true,
       hidden: !@isVisible,

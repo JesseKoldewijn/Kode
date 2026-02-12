@@ -1,9 +1,10 @@
 import { track, effect } from 'ripple';
 import { FileTree } from '../filetree/FileTree.ripple';
 import { SourceControl } from '../git/SourceControl.ripple';
-import { openSettings, openFile, workspacePath, requestGoToLine } from '../../lib/workspace';
+import { openFile, workspacePath, requestGoToLine } from '../../lib/workspace';
 import { subscribeToAction } from '../../lib/keybindings';
 import { fs, type ContentMatch } from '../../lib/tauri';
+import type { ActivityTab } from './ActivityBar.ripple';
 
 // Group search results by file path
 interface FileGroup {
@@ -13,8 +14,7 @@ interface FileGroup {
   isCollapsed: boolean;
 }
 
-export component Sidebar() {
-  let activeTab = track<'explorer' | 'search' | 'git'>('explorer');
+export component Sidebar(props: { activeTab: ActivityTab }) {
 
   // Search state
   let searchQuery = track('');
@@ -26,10 +26,9 @@ export component Sidebar() {
   let searchInputRef = track<HTMLInputElement | null>(null);
   let searchTimeout: number | null = null;
 
-  // Subscribe to edit.findInFiles action - switch to search tab and focus input
+  // Subscribe to edit.findInFiles action - focus search input when switching to search
   effect(() => {
     const unsub = subscribeToAction('edit.findInFiles', () => {
-      @activeTab = 'search';
       // Focus the search input after a microtask to let the DOM update
       setTimeout(() => {
         if (@searchInputRef) {
@@ -57,12 +56,12 @@ export component Sidebar() {
       @totalMatches = 0;
       @totalFiles = 0;
       @isSearching = false;
-      return;
+      return () => {};
     }
 
     @isSearching = true;
 
-    searchTimeout = setTimeout(async () => {
+    const id = setTimeout(async () => {
       try {
         const results = await fs.searchContent(root, q, 200);
         @searchResults = results;
@@ -97,6 +96,14 @@ export component Sidebar() {
         @isSearching = false;
       }
     }, 200) as unknown as number;
+    searchTimeout = id;
+
+    return () => {
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+        searchTimeout = null;
+      }
+    };
   });
 
   const getRelativePath = (fullPath: string) => {
@@ -137,80 +144,12 @@ export component Sidebar() {
     }
   };
 
-  <div class="flex h-full bg-sidebar-bg">
-    <nav
-      class="flex flex-col items-center w-12 py-2 gap-1 border-r border-border-default bg-bg-base"
-    >
-      <button
-        class={{
-          'flex items-center justify-center w-10 h-10 rounded-md bg-transparent text-text-muted cursor-pointer transition-all duration-150 hover:text-text-primary hover:bg-bg-hover relative': true,
-          'text-text-primary before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-0.5 before:h-6 before:bg-accent before:rounded-r-sm': @activeTab ===
-            'explorer',
-        }}
-        onClick={() => (@activeTab = 'explorer')}
-        title="Explorer (Ctrl+Shift+E)"
-      >
-        <svg class="w-5 h-5" viewBox="0 0 16 16" fill="currentColor">
-          <path
-            d="M1.5 1A1.5 1.5 0 0 0 0 2.5v11A1.5 1.5 0 0 0 1.5 15h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 14.5 3H7.71L6.29 1.15A.5.5 0 0 0 5.9 1H1.5zm.5 2h3.879l1.5 1.5H14v9H2V3z"
-          />
-        </svg>
-      </button>
-
-      <button
-        class={{
-          'flex items-center justify-center w-10 h-10 rounded-md bg-transparent text-text-muted cursor-pointer transition-all duration-150 hover:text-text-primary hover:bg-bg-hover relative': true,
-          'text-text-primary before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-0.5 before:h-6 before:bg-accent before:rounded-r-sm': @activeTab ===
-            'search',
-        }}
-        onClick={() => (@activeTab = 'search')}
-        title="Search (Ctrl+Shift+F)"
-      >
-        <svg class="w-5 h-5" viewBox="0 0 16 16" fill="currentColor">
-          <path
-            d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"
-          />
-        </svg>
-      </button>
-
-      <button
-        class={{
-          'flex items-center justify-center w-10 h-10 rounded-md bg-transparent text-text-muted cursor-pointer transition-all duration-150 hover:text-text-primary hover:bg-bg-hover relative': true,
-          'text-text-primary before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-0.5 before:h-6 before:bg-accent before:rounded-r-sm': @activeTab ===
-            'git',
-        }}
-        onClick={() => (@activeTab = 'git')}
-        title="Source Control (Ctrl+Shift+G)"
-      >
-        <svg class="w-5 h-5" viewBox="0 0 16 16" fill="currentColor">
-          <path
-            d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z"
-          />
-        </svg>
-      </button>
-
-      <div class="flex-1" />
-
-      <button
-        class="flex items-center justify-center w-10 h-10 rounded-md bg-transparent text-text-muted cursor-pointer transition-all duration-150 hover:text-text-primary hover:bg-bg-hover"
-        onClick={() => openSettings()}
-        title="Settings (Ctrl+,)"
-      >
-        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3" />
-          <path
-            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-          />
-        </svg>
-      </button>
-    </nav>
-
-    <div class="flex-1 min-w-0 overflow-hidden">
-      <div class={{ 'flex flex-col h-full': true, hidden: @activeTab !== 'explorer' }}>
+  <div class="flex h-full bg-sidebar-bg flex-1 min-w-0 overflow-hidden">
+      <div class={{ 'flex flex-col h-full w-full flex-1 min-w-0 overflow-hidden': true, hidden: @props.activeTab !== 'explorer' }}>
         <FileTree />
       </div>
 
-      <div class={{ 'flex flex-col h-full': true, hidden: @activeTab !== 'search' }}>
+      <div class={{ 'flex flex-col h-full w-full flex-1 min-w-0 overflow-hidden': true, hidden: @props.activeTab !== 'search' }}>
         <header class="flex items-center px-4 pt-3 pb-2">
           <span class="text-[11px] font-semibold text-text-secondary tracking-wider">
             {'SEARCH'}
@@ -362,9 +301,8 @@ export component Sidebar() {
         </div>
       </div>
 
-      <div class={{ 'flex flex-col h-full': true, hidden: @activeTab !== 'git' }}>
+      <div class={{ 'flex flex-col h-full w-full flex-1 min-w-0 overflow-hidden': true, hidden: @props.activeTab !== 'git' }}>
         <SourceControl />
       </div>
-    </div>
   </div>
 }

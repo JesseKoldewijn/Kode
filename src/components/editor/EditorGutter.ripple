@@ -18,7 +18,7 @@ export component EditorGutter(props: {
 
   <div
     data-testid="editor-gutter"
-    class="flex flex-col h-full bg-[#252526] border-r border-black/50 text-[11px] text-white/50 select-none"
+    class="flex flex-col h-full bg-bg-elevated border-r border-border-default text-[11px] text-text-muted select-none"
   >
     const effectiveViewportCount = Math.max(1, props.viewportLineCount);
     const endLine =
