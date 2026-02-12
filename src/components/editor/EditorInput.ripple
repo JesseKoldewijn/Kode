@@ -3,6 +3,7 @@ import { track } from 'ripple';
 export component EditorInput(props: {
   onInput: (text: string) => void;
   onKeyDown: (e: KeyboardEvent) => void;
+  onReady?: (el: HTMLTextAreaElement) => void;
 }) {
   let textarea = track<HTMLTextAreaElement | null>(null);
 
@@ -14,8 +15,15 @@ export component EditorInput(props: {
     }
   };
 
+  const handleRef = (el: HTMLTextAreaElement) => {
+    @textarea = el;
+    if (el && props.onReady) {
+      props.onReady(el);
+    }
+  };
+
   <textarea
-    {ref (el: HTMLTextAreaElement) => @textarea = el}
+    {ref handleRef}
     class="absolute opacity-0 pointer-events-none z-[-1]"
     onInput={onInput}
     onKeyDown={props.onKeyDown}

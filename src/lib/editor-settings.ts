@@ -10,16 +10,24 @@ const STORAGE_KEY = 'kode-editor-settings';
 
 export interface EditorSettings {
   tabSize: 2 | 4;
+  insertSpaces: boolean; // true = spaces, false = tabs
   wordWrap: boolean;
   autoSave: boolean;
   autoSaveDelay: number; // milliseconds
+  autoClosingBrackets: boolean;
+  autoClosingQuotes: boolean;
+  autoIndent: boolean;
 }
 
 const DEFAULT_SETTINGS: EditorSettings = {
   tabSize: 2,
+  insertSpaces: true,
   wordWrap: false,
   autoSave: false,
   autoSaveDelay: 1000,
+  autoClosingBrackets: true,
+  autoClosingQuotes: true,
+  autoIndent: true,
 };
 
 // Current settings state
@@ -61,6 +69,42 @@ function persist(): void {
  */
 export function setTabSize(size: 2 | 4): void {
   currentSettings = { ...currentSettings, tabSize: size };
+  persist();
+  notifyListeners();
+}
+
+/**
+ * Set whether to insert spaces or tabs
+ */
+export function setInsertSpaces(enabled: boolean): void {
+  currentSettings = { ...currentSettings, insertSpaces: enabled };
+  persist();
+  notifyListeners();
+}
+
+/**
+ * Set auto-closing brackets
+ */
+export function setAutoClosingBrackets(enabled: boolean): void {
+  currentSettings = { ...currentSettings, autoClosingBrackets: enabled };
+  persist();
+  notifyListeners();
+}
+
+/**
+ * Set auto-closing quotes
+ */
+export function setAutoClosingQuotes(enabled: boolean): void {
+  currentSettings = { ...currentSettings, autoClosingQuotes: enabled };
+  persist();
+  notifyListeners();
+}
+
+/**
+ * Set auto-indent
+ */
+export function setAutoIndent(enabled: boolean): void {
+  currentSettings = { ...currentSettings, autoIndent: enabled };
   persist();
   notifyListeners();
 }
@@ -120,6 +164,9 @@ export function initEditorSettings(): void {
         if (parsed.tabSize === 2 || parsed.tabSize === 4) {
           currentSettings.tabSize = parsed.tabSize;
         }
+        if (typeof parsed.insertSpaces === 'boolean') {
+          currentSettings.insertSpaces = parsed.insertSpaces;
+        }
         if (typeof parsed.wordWrap === 'boolean') {
           currentSettings.wordWrap = parsed.wordWrap;
         }
@@ -128,6 +175,15 @@ export function initEditorSettings(): void {
         }
         if (typeof parsed.autoSaveDelay === 'number' && parsed.autoSaveDelay >= 500) {
           currentSettings.autoSaveDelay = parsed.autoSaveDelay;
+        }
+        if (typeof parsed.autoClosingBrackets === 'boolean') {
+          currentSettings.autoClosingBrackets = parsed.autoClosingBrackets;
+        }
+        if (typeof parsed.autoClosingQuotes === 'boolean') {
+          currentSettings.autoClosingQuotes = parsed.autoClosingQuotes;
+        }
+        if (typeof parsed.autoIndent === 'boolean') {
+          currentSettings.autoIndent = parsed.autoIndent;
         }
       }
     }

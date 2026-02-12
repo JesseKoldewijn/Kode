@@ -6,8 +6,8 @@ use crate::editor::error::{EditorError, Result};
 use lsp_types::{
     CompletionParams, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
     GotoDefinitionParams, HoverParams, InitializeParams, Position,
-    TextDocumentContentChangeEvent, TextDocumentItem, TextDocumentPositionParams,
-    Url, VersionedTextDocumentIdentifier,
+    SignatureHelpParams, TextDocumentContentChangeEvent, TextDocumentItem,
+    TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -64,6 +64,32 @@ pub struct LspCompletionItem {
     pub kind: Option<u32>,
     pub detail: Option<String>,
     pub insert_text: Option<String>,
+}
+
+/// Parameter information for signature help.
+#[derive(Clone, serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct LspParameterInformation {
+    pub label: String,
+    pub documentation: Option<String>,
+}
+
+/// Signature information for signature help.
+#[derive(Clone, serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct LspSignatureInformation {
+    pub label: String,
+    pub documentation: Option<String>,
+    pub parameters: Option<Vec<LspParameterInformation>>,
+}
+
+/// Signature help result.
+#[derive(Clone, serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct LspSignatureHelp {
+    pub signatures: Vec<LspSignatureInformation>,
+    pub active_signature: Option<u32>,
+    pub active_parameter: Option<u32>,
 }
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
@@ -711,4 +737,143 @@ pub async fn lsp_completion(
         _ => None,
     };
     Ok(items)
+}
+
+/// Request signature help from LSP.
+#[tauri::command]
+pub async fn lsp_signature_help(
+    buffer_id: String,
+    line: u32,
+    character: u32,
+) -> Result<Option<LspSignatureHelp>> {
+    let uri = path_to_uri(&buffer_id);
+    let workspace_root = workspace_root_from_path(&buffer_id);
+    let key = session_key(&workspace_root, &buffer_id)
+        .ok_or_else(|| EditorError::Io("No LSP server for this file type".to_string()))?;
+    let session = {
+        let sessions = SESSIONS.read().await;
+        sessions.get(&key).cloned()
+    };
+    let s = session
+        .ok_or_else(|| EditorError::Io("LSP not running for this workspace".to_string()))?;
+
+    let params = SignatureHelpParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: lsp_types::TextDocumentIdentifier {
+                uri: Url::parse(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
+            },
+            position: Position { line, character },
+        },
+        context: None,
+        work_done_progress_params: Default::default(),
+    };
+
+    let params_value = serde_json::to_value(params).map_err(|e| EditorError::Io(e.to_string()))?;
+    let result = s
+        .send_request("textDocument/signatureHelp", params_value)
+        .await
+        .map_err(|e| EditorError::Io(e.to_string()))?;
+
+    // Parse the signature help response
+    match result {
+        Value::Null => Ok(None),
+        Value::Object(obj) => {
+            let signatures_arr = match obj.get("signatures").and_then(Value::as_array) {
+                Some(arr) => arr,
+                None => return Ok(None),
+            };
+
+            let signatures: Vec<LspSignatureInformation> = signatures_arr
+                .iter()
+                .filter_map(|sig_val| {
+                    let label = sig_val.get("label")?.as_str()?.to_string();
+                    let documentation = sig_val
+                        .get("documentation")
+                        .and_then(|doc| {
+                            // Handle both string and MarkupContent
+                            if let Some(s) = doc.as_str() {
+                                Some(s.to_string())
+                            } else if let Some(obj) = doc.as_object() {
+                                obj.get("value").and_then(Value::as_str).map(String::from)
+                            } else {
+                                None
+                            }
+                        });
+
+                    let parameters = sig_val.get("parameters").and_then(|params| {
+                        let params_arr = params.as_array()?;
+                        let params_vec: Vec<LspParameterInformation> = params_arr
+                            .iter()
+                            .filter_map(|param_val| {
+                                let param_label = param_val.get("label")?;
+                                let label_str = if let Some(s) = param_label.as_str() {
+                                    s.to_string()
+                                } else if let Some(arr) = param_label.as_array() {
+                                    // Handle [start, end] tuple format
+                                    if arr.len() == 2 {
+                                        // Extract substring from signature label
+                                        let start = arr[0].as_u64()? as usize;
+                                        let end = arr[1].as_u64()? as usize;
+                                        label.get(start..end)?.to_string()
+                                    } else {
+                                        return None;
+                                    }
+                                } else {
+                                    return None;
+                                };
+
+                                let documentation = param_val
+                                    .get("documentation")
+                                    .and_then(|doc| {
+                                        if let Some(s) = doc.as_str() {
+                                            Some(s.to_string())
+                                        } else if let Some(obj) = doc.as_object() {
+                                            obj.get("value").and_then(Value::as_str).map(String::from)
+                                        } else {
+                                            None
+                                        }
+                                    });
+
+                                Some(LspParameterInformation {
+                                    label: label_str,
+                                    documentation,
+                                })
+                            })
+                            .collect();
+                        if params_vec.is_empty() {
+                            None
+                        } else {
+                            Some(params_vec)
+                        }
+                    });
+
+                    Some(LspSignatureInformation {
+                        label,
+                        documentation,
+                        parameters,
+                    })
+                })
+                .collect();
+
+            if signatures.is_empty() {
+                return Ok(None);
+            }
+
+            let active_signature = obj
+                .get("activeSignature")
+                .and_then(Value::as_u64)
+                .map(|u| u as u32);
+            let active_parameter = obj
+                .get("activeParameter")
+                .and_then(Value::as_u64)
+                .map(|u| u as u32);
+
+            Ok(Some(LspSignatureHelp {
+                signatures,
+                active_signature,
+                active_parameter,
+            }))
+        }
+        _ => Ok(None),
+    }
 }

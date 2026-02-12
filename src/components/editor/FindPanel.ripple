@@ -1,0 +1,347 @@
+import { track, effect, type Children } from 'ripple';
+import { editorEngine, type SearchMatch } from '../../lib/editor-engine';
+import type { OpenFile } from '../../lib/workspace';
+
+export interface FindPanelProps {
+  file: OpenFile;
+  mode: 'find' | 'find-replace';
+  isOpen: boolean;
+  onClose: () => void;
+  onNavigateMatch?: (match: SearchMatch) => void;
+}
+
+export component FindPanel(props: FindPanelProps) {
+  let findQuery = track('');
+  let replaceQuery = track('');
+  let caseSensitive = track(false);
+  let useRegex = track(false);
+  let matches = track<SearchMatch[]>([]);
+  let currentMatchIndex = track(0);
+  let isSearching = track(false);
+
+  // Input refs for focus management
+  let findInputRef: HTMLInputElement | null = null;
+  let replaceInputRef: HTMLInputElement | null = null;
+
+  // Auto-focus find input when panel opens
+  effect(() => {
+    if (props.isOpen && findInputRef) {
+      // Delay to ensure DOM is ready
+      setTimeout(() => findInputRef?.focus(), 10);
+    }
+  });
+
+  // Perform search when query or options change
+  effect(() => {
+    const query = @findQuery;
+    const regex = @useRegex;
+    const caseSens = @caseSensitive;
+
+    if (!query || query.length === 0) {
+      @matches = [];
+      @currentMatchIndex = 0;
+      return;
+    }
+
+    @isSearching = true;
+    editorEngine
+      .searchBuffer(props.file.id, query, regex, caseSens)
+      .then((results) => {
+        @matches = results;
+        @currentMatchIndex = results.length > 0 ? 0 : -1;
+        @isSearching = false;
+
+        // Navigate to first match if available
+        if (results.length > 0 && props.onNavigateMatch) {
+          props.onNavigateMatch(results[0]);
+        }
+      })
+      .catch((err) => {
+        console.error('[FindPanel] Search failed:', err);
+        @isSearching = false;
+      });
+  });
+
+  const handleFindInputChange = (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    @findQuery = target.value;
+  };
+
+  const handleReplaceInputChange = (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    @replaceQuery = target.value;
+  };
+
+  const handleCaseSensitiveToggle = () => {
+    @caseSensitive = !@caseSensitive;
+  };
+
+  const handleRegexToggle = () => {
+    @useRegex = !@useRegex;
+  };
+
+  const handleNextMatch = () => {
+    const matchList = @matches;
+    if (matchList.length === 0) return;
+
+    const newIndex = (@currentMatchIndex + 1) % matchList.length;
+    @currentMatchIndex = newIndex;
+
+    if (props.onNavigateMatch) {
+      props.onNavigateMatch(matchList[newIndex]);
+    }
+  };
+
+  const handlePreviousMatch = () => {
+    const matchList = @matches;
+    if (matchList.length === 0) return;
+
+    const newIndex = (@currentMatchIndex - 1 + matchList.length) % matchList.length;
+    @currentMatchIndex = newIndex;
+
+    if (props.onNavigateMatch) {
+      props.onNavigateMatch(matchList[newIndex]);
+    }
+  };
+
+  const handleReplace = async () => {
+    const matchList = @matches;
+    const currentMatch = matchList[@currentMatchIndex];
+    if (!currentMatch) return;
+
+    try {
+      // Replace the current match
+      await editorEngine.editBuffer(props.file.id, {
+        range: {
+          startLine: currentMatch.lineNumber,
+          startCol: currentMatch.startCol,
+          endLine: currentMatch.lineNumber,
+          endCol: currentMatch.endCol,
+        },
+        newText: @replaceQuery,
+      });
+
+      // Refresh search results
+      const query = @findQuery;
+      const results = await editorEngine.searchBuffer(
+        props.file.id,
+        query,
+        @useRegex,
+        @caseSensitive
+      );
+      @matches = results;
+
+      // Move to next match (or stay at current if no more matches)
+      if (results.length > 0) {
+        const newIndex = Math.min(@currentMatchIndex, results.length - 1);
+        @currentMatchIndex = newIndex;
+        if (props.onNavigateMatch) {
+          props.onNavigateMatch(results[newIndex]);
+        }
+      } else {
+        @currentMatchIndex = -1;
+      }
+    } catch (err) {
+      console.error('[FindPanel] Replace failed:', err);
+    }
+  };
+
+  const handleReplaceAll = async () => {
+    const matchList = @matches;
+    if (matchList.length === 0) return;
+
+    try {
+      // Replace all matches from bottom to top to maintain positions
+      const sortedMatches = [...matchList].sort(
+        (a, b) => b.lineNumber - a.lineNumber || b.startCol - a.startCol
+      );
+
+      for (const match of sortedMatches) {
+        await editorEngine.editBuffer(props.file.id, {
+          range: {
+            startLine: match.lineNumber,
+            startCol: match.startCol,
+            endLine: match.lineNumber,
+            endCol: match.endCol,
+          },
+          newText: @replaceQuery,
+        });
+      }
+
+      // Clear search results after replacing all
+      @matches = [];
+      @currentMatchIndex = -1;
+    } catch (err) {
+      console.error('[FindPanel] Replace all failed:', err);
+    }
+  };
+
+  const handleClose = () => {
+    // Clear state when closing
+    @findQuery = '';
+    @replaceQuery = '';
+    @matches = [];
+    @currentMatchIndex = 0;
+    props.onClose();
+  };
+
+  const handleFindKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      handleClose();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        handlePreviousMatch();
+      } else {
+        handleNextMatch();
+      }
+    }
+  };
+
+  const handleReplaceKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      handleClose();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      handleReplace();
+    }
+  };
+
+  const matchCount = @matches.length;
+  const currentIndex = @currentMatchIndex;
+  const showReplace = props.mode === 'find-replace';
+
+  if (props.isOpen) {
+    <div
+      class="absolute top-0 right-4 z-50 bg-bg-elevated border border-border-default rounded-md shadow-lg p-3 min-w-[400px]"
+      data-testid="find-panel"
+    >
+    <div class="flex flex-col gap-2">
+      <div class="flex items-center gap-2">
+        <div class="flex-1 relative">
+          <input
+            ref={(el) => (findInputRef = el)}
+            type="text"
+            placeholder={'Find'}
+            value={@findQuery}
+            onInput={handleFindInputChange}
+            onKeyDown={handleFindKeyDown}
+            class="w-full px-3 py-1.5 pr-20 bg-bg-surface border border-border-default rounded text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent-primary"
+            data-testid="find-input"
+          />
+          <div class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            <button
+              onClick={handleCaseSensitiveToggle}
+              class={{
+                'px-2 py-0.5 text-xs rounded hover:bg-bg-elevated transition-colors': true,
+                'bg-accent-primary/20 text-accent-primary': @caseSensitive,
+                'text-text-muted': !@caseSensitive,
+              }}
+              title={'Match Case'}
+              data-testid="case-sensitive-toggle"
+            >
+              {'Aa'}
+            </button>
+            <button
+              onClick={handleRegexToggle}
+              class={{
+                'px-2 py-0.5 text-xs rounded hover:bg-bg-elevated transition-colors font-mono': true,
+                'bg-accent-primary/20 text-accent-primary': @useRegex,
+                'text-text-muted': !@useRegex,
+              }}
+              title={'Use Regular Expression'}
+              data-testid="regex-toggle"
+            >
+              {'.*'}
+            </button>
+          </div>
+        </div>
+        <div class="flex items-center gap-1 text-xs text-text-muted min-w-[60px]">
+          if (matchCount > 0) {
+            <span data-testid="match-count">
+              {String(currentIndex + 1)}{' of '}{String(matchCount)}
+            </span>
+          } else if (@isSearching) {
+            <span data-testid="searching-indicator">{'Searching...'}</span>
+          } else if (@findQuery) {
+            <span data-testid="no-results">{'No results'}</span>
+          }
+        </div>
+        <div class="flex items-center gap-1">
+          <button
+            onClick={handlePreviousMatch}
+            disabled={matchCount === 0}
+            class="p-1.5 text-text-secondary hover:bg-bg-surface rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            title={'Previous Match (Shift+Enter)'}
+            data-testid="previous-match"
+          >
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <button
+            onClick={handleNextMatch}
+            disabled={matchCount === 0}
+            class="p-1.5 text-text-secondary hover:bg-bg-surface rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            title={'Next Match (Enter)'}
+            data-testid="next-match"
+          >
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </button>
+          <button
+            onClick={handleClose}
+            class="p-1.5 text-text-secondary hover:bg-bg-surface rounded"
+            title={'Close (Escape)'}
+            data-testid="close-button"
+          >
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      if (showReplace) {
+        <div class="flex items-center gap-2">
+          <div class="flex-1">
+            <input
+              ref={(el) => (replaceInputRef = el)}
+              type="text"
+              placeholder={'Replace'}
+              value={@replaceQuery}
+              onInput={handleReplaceInputChange}
+              onKeyDown={handleReplaceKeyDown}
+              class="w-full px-3 py-1.5 bg-bg-surface border border-border-default rounded text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              data-testid="replace-input"
+            />
+          </div>
+          <div class="flex items-center gap-1">
+            <button
+              onClick={handleReplace}
+              disabled={matchCount === 0}
+              class="px-3 py-1.5 text-xs bg-bg-surface hover:bg-bg-elevated border border-border-default rounded text-text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+              title={'Replace (Enter)'}
+              data-testid="replace-button"
+            >
+              {'Replace'}
+            </button>
+            <button
+              onClick={handleReplaceAll}
+              disabled={matchCount === 0}
+              class="px-3 py-1.5 text-xs bg-bg-surface hover:bg-bg-elevated border border-border-default rounded text-text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+              title={'Replace All'}
+              data-testid="replace-all-button"
+            >
+              {'All'}
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+    </div>
+  }
+}

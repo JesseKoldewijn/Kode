@@ -21,8 +21,13 @@ import {
   nextTab,
   previousTab,
   goToTab,
+  createNewFile,
+  createNewDirectory,
+  deletePath,
+  renamePath,
   type OpenFile,
 } from '../../src/lib/workspace';
+import { fs } from '../../src/lib/tauri';
 
 // Mock the Tauri fs module
 vi.mock('../../src/lib/tauri', () => ({
@@ -43,6 +48,12 @@ vi.mock('../../src/lib/tauri', () => ({
   git: {
     getBranch: vi.fn().mockResolvedValue('main'),
     getStatus: vi.fn().mockResolvedValue({}),
+  },
+  shell: {
+    openUrl: vi.fn().mockResolvedValue(undefined),
+  },
+  dialog: {
+    openDialog: vi.fn().mockResolvedValue(null),
   },
 }));
 
@@ -441,6 +452,127 @@ describe('workspace', () => {
 
         goToTab(-1); // Negative
         expect(activeFileId).toBe('/test/file1.ts');
+      });
+    });
+  });
+
+  describe('file operations', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    describe('createNewFile', () => {
+      it('calls fs.createFile with correct path', async () => {
+        await createNewFile('/workspace/src', 'test.ts');
+
+        expect(fs.createFile).toHaveBeenCalledWith('/workspace/src/test.ts');
+      });
+
+      it('handles file creation errors gracefully', async () => {
+        vi.mocked(fs.createFile).mockRejectedValueOnce(new Error('Permission denied'));
+
+        // Should not throw
+        await expect(createNewFile('/workspace', 'test.ts')).resolves.not.toThrow();
+      });
+    });
+
+    describe('createNewDirectory', () => {
+      it('calls fs.createDirectory with correct path', async () => {
+        await createNewDirectory('/workspace', 'components');
+
+        expect(fs.createDirectory).toHaveBeenCalledWith('/workspace/components');
+      });
+
+      it('handles directory creation errors gracefully', async () => {
+        vi.mocked(fs.createDirectory).mockRejectedValueOnce(new Error('Already exists'));
+
+        // Should not throw
+        await expect(createNewDirectory('/workspace', 'test')).resolves.not.toThrow();
+      });
+    });
+
+    describe('deletePath', () => {
+      it('calls fs.deletePath with correct path', async () => {
+        await deletePath('/workspace/file.ts');
+
+        expect(fs.deletePath).toHaveBeenCalledWith('/workspace/file.ts');
+      });
+
+      it('closes open file when deleting its path', async () => {
+        await openFile('/workspace/file.ts', 'file.ts');
+        expect(openFiles.length).toBe(1);
+        expect(activeFileId).toBe('/workspace/file.ts');
+
+        await deletePath('/workspace/file.ts');
+
+        expect(openFiles.length).toBe(0);
+        expect(activeFileId).toBeNull();
+      });
+
+      it('does not affect unrelated open files', async () => {
+        await openFile('/workspace/file1.ts', 'file1.ts');
+        await openFile('/workspace/file2.ts', 'file2.ts');
+        expect(openFiles.length).toBe(2);
+
+        await deletePath('/workspace/file1.ts');
+
+        expect(openFiles.length).toBe(1);
+        expect(openFiles[0].path).toBe('/workspace/file2.ts');
+      });
+
+      it('handles deletion errors gracefully', async () => {
+        vi.mocked(fs.deletePath).mockRejectedValueOnce(new Error('File not found'));
+
+        // Should not throw
+        await expect(deletePath('/workspace/nonexistent.ts')).resolves.not.toThrow();
+      });
+    });
+
+    describe('renamePath', () => {
+      it('calls fs.renamePath with correct paths', async () => {
+        await renamePath('/workspace/old.ts', '/workspace/new.ts');
+
+        expect(fs.renamePath).toHaveBeenCalledWith('/workspace/old.ts', '/workspace/new.ts');
+      });
+
+      it('updates open file path and name when renamed', async () => {
+        await openFile('/workspace/old.ts', 'old.ts');
+        expect(openFiles[0].path).toBe('/workspace/old.ts');
+        expect(openFiles[0].name).toBe('old.ts');
+        expect(openFiles[0].id).toBe('/workspace/old.ts');
+
+        await renamePath('/workspace/old.ts', '/workspace/new.ts');
+
+        expect(openFiles[0].path).toBe('/workspace/new.ts');
+        expect(openFiles[0].name).toBe('new.ts');
+        expect(openFiles[0].id).toBe('/workspace/new.ts');
+      });
+
+      it('updates activeFileId when renaming active file', async () => {
+        await openFile('/workspace/old.ts', 'old.ts');
+        expect(activeFileId).toBe('/workspace/old.ts');
+
+        await renamePath('/workspace/old.ts', '/workspace/new.ts');
+
+        expect(activeFileId).toBe('/workspace/new.ts');
+      });
+
+      it('does not affect unrelated open files', async () => {
+        await openFile('/workspace/file1.ts', 'file1.ts');
+        await openFile('/workspace/file2.ts', 'file2.ts');
+
+        await renamePath('/workspace/file1.ts', '/workspace/renamed.ts');
+
+        expect(openFiles.length).toBe(2);
+        expect(openFiles[0].path).toBe('/workspace/renamed.ts');
+        expect(openFiles[1].path).toBe('/workspace/file2.ts');
+      });
+
+      it('handles rename errors gracefully', async () => {
+        vi.mocked(fs.renamePath).mockRejectedValueOnce(new Error('File not found'));
+
+        // Should not throw
+        await expect(renamePath('/workspace/old.ts', '/workspace/new.ts')).resolves.not.toThrow();
       });
     });
   });

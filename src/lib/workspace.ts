@@ -792,9 +792,17 @@ export async function renamePath(oldPath: string, newPath: string): Promise<void
 
     const file = openFiles.find((f) => f.path === oldPath);
     if (file) {
+      const wasActive = activeFileId === oldPath;
       file.path = newPath;
       file.name = newPath.split('/').pop() || file.name;
       file.id = newPath;
+
+      // If this was the active file, update activeFileId
+      if (wasActive) {
+        activeFileId = newPath;
+        notifyActiveFileSubscribers();
+      }
+
       notifyOpenFilesSubscribers();
     }
   } catch (error) {

@@ -2,9 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   initEditorSettings,
   setTabSize,
+  setInsertSpaces,
   setWordWrap,
   setAutoSave,
   setAutoSaveDelay,
+  setAutoClosingBrackets,
+  setAutoClosingQuotes,
+  setAutoIndent,
   toggleWordWrap,
   getEditorSettings,
   subscribeToEditorSettings,
@@ -33,15 +37,30 @@ Object.defineProperty(global, 'localStorage', {
   writable: true,
 });
 
+const DEFAULT_SETTINGS = {
+  tabSize: 2,
+  insertSpaces: true,
+  wordWrap: false,
+  autoSave: false,
+  autoSaveDelay: 1000,
+  autoClosingBrackets: true,
+  autoClosingQuotes: true,
+  autoIndent: true,
+} as const;
+
 describe('Editor Settings', () => {
   beforeEach(() => {
     localStorageMock.clear();
     vi.clearAllMocks();
     // Reset to defaults
     setTabSize(2);
+    setInsertSpaces(true);
     setWordWrap(false);
     setAutoSave(false);
     setAutoSaveDelay(1000);
+    setAutoClosingBrackets(true);
+    setAutoClosingQuotes(true);
+    setAutoIndent(true);
   });
 
   describe('Default values', () => {
@@ -119,10 +138,9 @@ describe('Editor Settings', () => {
 
       expect(callback).toHaveBeenCalledTimes(1);
       expect(callback).toHaveBeenCalledWith({
+        ...DEFAULT_SETTINGS,
         tabSize: 4,
         wordWrap: true,
-        autoSave: false,
-        autoSaveDelay: 1000,
       });
     });
   });
@@ -143,7 +161,7 @@ describe('Editor Settings', () => {
       setTabSize(4);
       expect(localStorageMock.setItem).toHaveBeenCalledWith(
         'kode-editor-settings',
-        JSON.stringify({ tabSize: 4, wordWrap: false, autoSave: false, autoSaveDelay: 1000 })
+        JSON.stringify({ ...DEFAULT_SETTINGS, tabSize: 4 })
       );
     });
 
@@ -155,10 +173,8 @@ describe('Editor Settings', () => {
       setTabSize(4);
       expect(callback).toHaveBeenCalledTimes(1);
       expect(callback).toHaveBeenCalledWith({
+        ...DEFAULT_SETTINGS,
         tabSize: 4,
-        wordWrap: false,
-        autoSave: false,
-        autoSaveDelay: 1000,
       });
     });
   });
@@ -179,7 +195,7 @@ describe('Editor Settings', () => {
       setWordWrap(true);
       expect(localStorageMock.setItem).toHaveBeenCalledWith(
         'kode-editor-settings',
-        JSON.stringify({ tabSize: 2, wordWrap: true, autoSave: false, autoSaveDelay: 1000 })
+        JSON.stringify({ ...DEFAULT_SETTINGS, wordWrap: true })
       );
     });
 
@@ -191,10 +207,8 @@ describe('Editor Settings', () => {
       setWordWrap(true);
       expect(callback).toHaveBeenCalledTimes(1);
       expect(callback).toHaveBeenCalledWith({
-        tabSize: 2,
+        ...DEFAULT_SETTINGS,
         wordWrap: true,
-        autoSave: false,
-        autoSaveDelay: 1000,
       });
     });
   });
@@ -216,7 +230,7 @@ describe('Editor Settings', () => {
       toggleWordWrap();
       expect(localStorageMock.setItem).toHaveBeenCalledWith(
         'kode-editor-settings',
-        JSON.stringify({ tabSize: 2, wordWrap: true, autoSave: false, autoSaveDelay: 1000 })
+        JSON.stringify({ ...DEFAULT_SETTINGS, wordWrap: true })
       );
     });
   });
@@ -234,10 +248,9 @@ describe('Editor Settings', () => {
       setWordWrap(true);
       const settings = getEditorSettings();
       expect(settings).toEqual({
+        ...DEFAULT_SETTINGS,
         tabSize: 4,
         wordWrap: true,
-        autoSave: false,
-        autoSaveDelay: 1000,
       });
     });
   });
@@ -248,12 +261,7 @@ describe('Editor Settings', () => {
       const unsubscribe = subscribeToEditorSettings(callback);
 
       expect(callback).toHaveBeenCalledTimes(1);
-      expect(callback).toHaveBeenCalledWith({
-        tabSize: 2,
-        wordWrap: false,
-        autoSave: false,
-        autoSaveDelay: 1000,
-      });
+      expect(callback).toHaveBeenCalledWith(DEFAULT_SETTINGS);
 
       unsubscribe();
     });
@@ -266,10 +274,8 @@ describe('Editor Settings', () => {
       setTabSize(4);
       expect(callback).toHaveBeenCalledTimes(1);
       expect(callback).toHaveBeenCalledWith({
+        ...DEFAULT_SETTINGS,
         tabSize: 4,
-        wordWrap: false,
-        autoSave: false,
-        autoSaveDelay: 1000,
       });
 
       unsubscribe();
@@ -283,10 +289,8 @@ describe('Editor Settings', () => {
       setWordWrap(true);
       expect(callback).toHaveBeenCalledTimes(1);
       expect(callback).toHaveBeenCalledWith({
-        tabSize: 2,
+        ...DEFAULT_SETTINGS,
         wordWrap: true,
-        autoSave: false,
-        autoSaveDelay: 1000,
       });
 
       unsubscribe();
@@ -340,8 +344,8 @@ describe('Editor Settings', () => {
     });
 
     it('receives a snapshot copy, not a reference', () => {
-      const received: Array<{ tabSize: number; wordWrap: boolean }> = [];
-      const callback = (settings: { tabSize: 2 | 4; wordWrap: boolean }) => {
+      const received: Array<any> = [];
+      const callback = (settings: any) => {
         received.push(settings);
       };
 
@@ -351,17 +355,10 @@ describe('Editor Settings', () => {
       // The two received objects should be different references
       expect(received.length).toBe(2);
       expect(received[0]).not.toBe(received[1]);
-      expect(received[0]).toEqual({
-        tabSize: 2,
-        wordWrap: false,
-        autoSave: false,
-        autoSaveDelay: 1000,
-      });
+      expect(received[0]).toEqual(DEFAULT_SETTINGS);
       expect(received[1]).toEqual({
+        ...DEFAULT_SETTINGS,
         tabSize: 4,
-        wordWrap: false,
-        autoSave: false,
-        autoSaveDelay: 1000,
       });
 
       unsubscribe();
@@ -375,10 +372,9 @@ describe('Editor Settings', () => {
 
       const settings = getEditorSettings();
       expect(settings).toEqual({
+        ...DEFAULT_SETTINGS,
         tabSize: 4,
         wordWrap: true,
-        autoSave: false,
-        autoSaveDelay: 1000,
       });
     });
 
@@ -389,7 +385,7 @@ describe('Editor Settings', () => {
       setWordWrap(true);
       expect(localStorageMock.setItem).toHaveBeenCalledWith(
         'kode-editor-settings',
-        JSON.stringify({ tabSize: 4, wordWrap: true, autoSave: false, autoSaveDelay: 1000 })
+        JSON.stringify({ ...DEFAULT_SETTINGS, tabSize: 4, wordWrap: true })
       );
     });
 
@@ -402,10 +398,9 @@ describe('Editor Settings', () => {
 
       const settings = getEditorSettings();
       expect(settings).toEqual({
+        ...DEFAULT_SETTINGS,
         tabSize: 4,
         wordWrap: true,
-        autoSave: false,
-        autoSaveDelay: 1000,
       });
     });
   });

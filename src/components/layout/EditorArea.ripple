@@ -3,6 +3,7 @@ import { EditorTabs } from '../editor/EditorTabs.ripple';
 import { Breadcrumbs } from '../editor/Breadcrumbs.ripple';
 import { RustEditor } from '../editor/RustEditor.ripple';
 import { GoToLineDialog } from '../editor/GoToLineDialog.ripple';
+import { FindPanel } from '../editor/FindPanel.ripple';
 import { SettingsPage } from '../settings/SettingsPage.ripple';
 import {
   updateFileContent,
@@ -15,8 +16,17 @@ import {
 } from '../../lib/workspace';
 import type { OpenFile, CursorPosition } from '../../lib/workspace';
 import type { Tracked } from 'ripple';
+import type { SearchMatch, Selection } from '../../lib/editor-engine';
 import { subscribeToAction } from '../../lib/keybindings';
 import { editorEngine } from '../../lib/editor-engine';
+import {
+  toggleLineComment,
+  duplicateLine,
+  moveLineUp,
+  moveLineDown,
+  indentLine,
+  outdentLine,
+} from '../../lib/editor-operations';
 
 export component EditorArea(props: {
   activeFileRef?: Tracked<OpenFile | null> | null;
@@ -128,6 +138,123 @@ export component EditorArea(props: {
       });
     });
 
+    // Editor operations (comment, duplicate, move, indent)
+    const unsubscribeCommentLine = subscribeToAction('editor.commentLine', async () => {
+      const file = getActiveFile();
+      if (!file || isSpecialTab(file)) return;
+      
+      try {
+        const selSet = await editorEngine.getSelections(file.id);
+        const selection = selSet.selections[selSet.primaryIndex ?? 0];
+        if (!selection) return;
+
+        const operations = toggleLineComment(file.content, selection, file.language);
+        
+        // Apply all operations sequentially
+        for (const op of operations) {
+          await editorEngine.editBuffer(file.id, op);
+        }
+      } catch (err) {
+        console.error('[EditorArea] Comment line failed:', err);
+      }
+    });
+
+    const unsubscribeDuplicateLine = subscribeToAction('editor.duplicateLine', async () => {
+      const file = getActiveFile();
+      if (!file || isSpecialTab(file)) return;
+      
+      try {
+        const selSet = await editorEngine.getSelections(file.id);
+        const selection = selSet.selections[selSet.primaryIndex ?? 0];
+        if (!selection) return;
+
+        const operation = duplicateLine(file.content, selection);
+        await editorEngine.editBuffer(file.id, operation);
+      } catch (err) {
+        console.error('[EditorArea] Duplicate line failed:', err);
+      }
+    });
+
+    const unsubscribeMoveLineUp = subscribeToAction('editor.moveLineUp', async () => {
+      const file = getActiveFile();
+      if (!file || isSpecialTab(file)) return;
+      
+      try {
+        const selSet = await editorEngine.getSelections(file.id);
+        const selection = selSet.selections[selSet.primaryIndex ?? 0];
+        if (!selection) return;
+
+        const operations = moveLineUp(file.content, selection);
+        
+        // Apply all operations sequentially
+        for (const op of operations) {
+          await editorEngine.editBuffer(file.id, op);
+        }
+      } catch (err) {
+        console.error('[EditorArea] Move line up failed:', err);
+      }
+    });
+
+    const unsubscribeMoveLineDown = subscribeToAction('editor.moveLineDown', async () => {
+      const file = getActiveFile();
+      if (!file || isSpecialTab(file)) return;
+      
+      try {
+        const selSet = await editorEngine.getSelections(file.id);
+        const selection = selSet.selections[selSet.primaryIndex ?? 0];
+        if (!selection) return;
+
+        const operations = moveLineDown(file.content, selection);
+        
+        // Apply all operations sequentially
+        for (const op of operations) {
+          await editorEngine.editBuffer(file.id, op);
+        }
+      } catch (err) {
+        console.error('[EditorArea] Move line down failed:', err);
+      }
+    });
+
+    const unsubscribeIndentLine = subscribeToAction('editor.indentLine', async () => {
+      const file = getActiveFile();
+      if (!file || isSpecialTab(file)) return;
+      
+      try {
+        const selSet = await editorEngine.getSelections(file.id);
+        const selection = selSet.selections[selSet.primaryIndex ?? 0];
+        if (!selection) return;
+
+        const operations = indentLine(file.content, selection, 2, true);
+        
+        // Apply all operations sequentially
+        for (const op of operations) {
+          await editorEngine.editBuffer(file.id, op);
+        }
+      } catch (err) {
+        console.error('[EditorArea] Indent line failed:', err);
+      }
+    });
+
+    const unsubscribeOutdentLine = subscribeToAction('editor.outdentLine', async () => {
+      const file = getActiveFile();
+      if (!file || isSpecialTab(file)) return;
+      
+      try {
+        const selSet = await editorEngine.getSelections(file.id);
+        const selection = selSet.selections[selSet.primaryIndex ?? 0];
+        if (!selection) return;
+
+        const operations = outdentLine(file.content, selection, 2);
+        
+        // Apply all operations sequentially
+        for (const op of operations) {
+          await editorEngine.editBuffer(file.id, op);
+        }
+      } catch (err) {
+        console.error('[EditorArea] Outdent line failed:', err);
+      }
+    });
+
     return () => {
       unsubscribeGoToLine();
       unsubscribeFind();
@@ -135,6 +262,12 @@ export component EditorArea(props: {
       unsubscribeFocusEditor();
       unsubscribeGoToLineExternal();
       unsubscribeGoToDefinition();
+      unsubscribeCommentLine();
+      unsubscribeDuplicateLine();
+      unsubscribeMoveLineUp();
+      unsubscribeMoveLineDown();
+      unsubscribeIndentLine();
+      unsubscribeOutdentLine();
     };
   });
 
@@ -149,6 +282,29 @@ export component EditorArea(props: {
 
   const handleGoToLineClose = () => {
     @goToLineOpen = false;
+  };
+
+  const handleFindClose = () => {
+    @openFind = false;
+    @openFindReplace = false;
+  };
+
+  const handleNavigateMatch = (match: SearchMatch) => {
+    // Navigate cursor to the match position
+    const file = getActiveFile();
+    if (!file) return;
+
+    // Set cursor position to the match
+    editorEngine.setSelections(file.id, [
+      {
+        anchorLine: match.lineNumber,
+        anchorCol: match.startCol,
+        headLine: match.lineNumber,
+        headCol: match.endCol,
+      },
+    ]).catch((err) => {
+      console.error('[EditorArea] Failed to navigate to match:', err);
+    });
   };
 
   const getMaxLines = (file: OpenFile | null) => (file ? file.content.split('\n').length : 1);
@@ -226,6 +382,15 @@ export component EditorArea(props: {
         <div class="absolute inset-0" data-testid="editor-container" data-active-file-id={@fileState?.id ?? ''}>
           for (const fileId of [@fileState.id]; key fileId) {
             <RustEditor file={@fileState} onContentChange={handleContentChange} />
+          }
+          if (findOpen || findReplaceOpen) {
+            <FindPanel
+              file={@fileState}
+              mode={findReplaceOpen ? 'find-replace' : 'find'}
+              isOpen={findOpen || findReplaceOpen}
+              onClose={handleFindClose}
+              onNavigateMatch={handleNavigateMatch}
+            />
           }
         </div>
       } else {

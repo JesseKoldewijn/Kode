@@ -5,6 +5,8 @@ import {
   type Selection,
   type FoldRange,
   type LspCompletionItem,
+  type LspSignatureHelp,
+  type LspSignatureInformation,
 } from '../../lib/editor-engine';
 import { EditorViewport } from './EditorViewport.ripple';
 import { EditorInput } from './EditorInput.ripple';
@@ -14,6 +16,7 @@ import { EditorGutter } from './EditorGutter.ripple';
 import type { OpenFile } from '../../lib/workspace';
 import { setCursorPosition, getActiveFile } from '../../lib/workspace';
 import { subscribeToAction } from '../../lib/keybindings';
+import { currentSettings as editorSettings } from '../../lib/editor-settings';
 
 export component RustEditor(props: {
   file: OpenFile | null;
@@ -49,12 +52,16 @@ export component RustEditor(props: {
   let showCompletion = track(false);
   let completionItems = track<LspCompletionItem[]>([]);
   let completionSelectedIndex = track(0);
+  let showSignatureHelp = track(false);
+  let signatureHelp = track<LspSignatureHelp | null>(null);
+  let selectedSignatureIndex = track(0);
   let minimapTotalLines = track(1);
   let minimapStartLine = track(0);
   let minimapLineCount = track(0);
   let foldRanges = track<FoldRange[] | null>(null);
   let foldedStartLines = track<number[]>([]);
   let wordWrap = track(false);
+  let inputTextarea = track<HTMLTextAreaElement | null>(null);
 
   // Initialize/reset local content when file or fileProp changes (re-runs when @file or @fileProp changes).
   // Use rippleSet so updates propagate in same flush when tab is switched via flushSync.
@@ -217,11 +224,90 @@ export component RustEditor(props: {
     }
   };
 
-  const onInput = async (text: string) => {
+  // Helper: Get indentation from a line
+  const getLineIndentation = (line: string): string => {
+    const match = line.match(/^(\s*)/);
+    return match ? match[1] : '';
+  };
+
+  // Helper: Calculate word boundaries for navigation
+  const findWordBoundary = (line: string, col: number, direction: 'left' | 'right'): number => {
+    const isWordChar = (ch: string) => /[a-zA-Z0-9_]/.test(ch);
+    
+    if (direction === 'left') {
+      if (col === 0) return 0;
+      let pos = col - 1;
+      const startChar = line[pos];
+      
+      if (startChar && isWordChar(startChar)) {
+        // Skip word characters
+        while (pos > 0 && isWordChar(line[pos - 1])) {
+          pos--;
+        }
+      } else {
+        // Skip non-word characters
+        while (pos > 0 && !isWordChar(line[pos - 1]) && line[pos - 1] !== ' ') {
+          pos--;
+        }
+        // Skip spaces
+        while (pos > 0 && line[pos - 1] === ' ') {
+          pos--;
+        }
+      }
+      return pos;
+    } else {
+      // direction === 'right'
+      if (col >= line.length) return line.length;
+      let pos = col;
+      const startChar = line[pos];
+      
+      if (startChar && isWordChar(startChar)) {
+        // Skip word characters
+        while (pos < line.length && isWordChar(line[pos])) {
+          pos++;
+        }
+      } else {
+        // Skip non-word characters
+        while (pos < line.length && !isWordChar(line[pos]) && line[pos] !== ' ') {
+          pos++;
+        }
+        // Skip spaces
+        while (pos < line.length && line[pos] === ' ') {
+          pos++;
+        }
+      }
+      return pos;
+    }
+  };
+
+  // Helper: Get closing character for auto-pairing
+  const getClosingChar = (openChar: string): string | null => {
+    const pairs: Record<string, string> = {
+      '{': '}',
+      '[': ']',
+      '(': ')',
+      '"': '"',
+      "'": "'",
+      '`': '`',
+    };
+    return pairs[openChar] ?? null;
+  };
+
+  // Helper: Check if next character matches what we're typing
+  const shouldSkipClosing = (line: string, col: number, char: string): boolean => {
+    return col < line.length && line[col] === char;
+  };
+
+  const onInput = async (text: string, skipAutoPair: boolean = false) => {
     if (!@file || @selections.length === 0) return;
     syncToCurrentFile();
 
     const currentSel = @selections[0];
+    const content =
+      @file && @currentFileId === @file.id ? @localContent ?? @file.content : @file?.content ?? '';
+    const lines = (content || '').split('\n');
+    const currentLine = lines[currentSel.headLine] || '';
+    
     const range = {
       startLine: Math.min(currentSel.anchorLine, currentSel.headLine),
       startCol: currentSel.anchorLine === currentSel.headLine
@@ -233,18 +319,56 @@ export component RustEditor(props: {
         : (currentSel.anchorLine < currentSel.headLine ? currentSel.headCol : currentSel.anchorCol),
     };
 
+    // Check for auto-pairing closing character skip
+    const closingChars = ['}', ']', ')', '"', "'", '`'];
+    if (!skipAutoPair && text.length === 1 && closingChars.includes(text)) {
+      const shouldBrackets = editorSettings.autoClosingBrackets && ['}', ']', ')'].includes(text);
+      const shouldQuotes = editorSettings.autoClosingQuotes && ['"', "'", '`'].includes(text);
+      
+      if ((shouldBrackets || shouldQuotes) && shouldSkipClosing(currentLine, currentSel.headCol, text)) {
+        // Skip over the closing character instead of inserting it
+        const newSelection: Selection = {
+          anchorLine: currentSel.headLine,
+          anchorCol: currentSel.headCol + 1,
+          headLine: currentSel.headLine,
+          headCol: currentSel.headCol + 1,
+        };
+        @selections = [newSelection];
+        await editorEngine.setSelections(@file.id, [newSelection]);
+        return;
+      }
+    }
+
+    let finalText = text;
+    let cursorOffset = text.length; // How far to move cursor after insertion
+
+    // Auto-pair brackets and quotes (only if no selection and single character)
+    if (!skipAutoPair && text.length === 1 && currentSel.anchorLine === currentSel.headLine && currentSel.anchorCol === currentSel.headCol) {
+      const closingChar = getClosingChar(text);
+      if (closingChar) {
+        const shouldPair = 
+          (editorSettings.autoClosingBrackets && ['{', '[', '('].includes(text)) ||
+          (editorSettings.autoClosingQuotes && ['"', "'", '`'].includes(text));
+        
+        if (shouldPair) {
+          finalText = text + closingChar;
+          cursorOffset = 1; // Cursor stays between the pair
+        }
+      }
+    }
+
     // Apply optimistically
-    applyLocalEdit(range, text);
+    applyLocalEdit(range, finalText);
     @pendingEdits++;
 
     // Calculate new cursor position after insertion
-    const newLines = text.split('\n');
+    const newLines = finalText.split('\n');
     let newLine: number;
     let newCol: number;
 
     if (newLines.length === 1) {
       newLine = range.startLine;
-      newCol = range.startCol + text.length;
+      newCol = range.startCol + cursorOffset;
     } else {
       newLine = range.startLine + newLines.length - 1;
       newCol = newLines[newLines.length - 1].length;
@@ -262,7 +386,7 @@ export component RustEditor(props: {
     try {
       const result = await editorEngine.editBufferWithSelections(
         @file.id,
-        { range, newText: text },
+        { range, newText: finalText },
         [newSelection],
       );
       @serverVersion = result.version;
@@ -270,6 +394,26 @@ export component RustEditor(props: {
       console.error('Edit failed:', err);
     } finally {
       @pendingEdits--;
+    }
+
+    // Auto-trigger signature help on '(' or ','
+    if (text === '(' || text === ',') {
+      editorEngine
+        .getLspSignatureHelp(@file.id, newLine, newCol)
+        .then((help) => {
+          if (help && help.signatures.length > 0) {
+            @signatureHelp = help;
+            @selectedSignatureIndex = help.activeSignature ?? 0;
+            @showSignatureHelp = true;
+          }
+        })
+        .catch(() => {});
+    }
+
+    // Dismiss signature help on ')'
+    if (text === ')') {
+      @showSignatureHelp = false;
+      @signatureHelp = null;
     }
   };
 
@@ -286,6 +430,205 @@ export component RustEditor(props: {
     const lines = (content || '').split('\n');
     const currentLineLength =
       currentSel.headLine < lines.length ? lines[currentSel.headLine].length : 0;
+    const currentLine = lines[currentSel.headLine] || '';
+
+    // Handle Tab
+    if (e.key === 'Tab' && !@showCompletion) {
+      e.preventDefault();
+      const tabString = editorSettings.insertSpaces
+        ? ' '.repeat(editorSettings.tabSize)
+        : '\t';
+      await onInput(tabString, true); // Skip auto-pair for tab
+      return;
+    }
+
+    // Handle Clipboard Operations
+    // Copy (Ctrl+C / Cmd+C)
+    if (e.key === 'c' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      if (currentSel.anchorLine !== currentSel.headLine || currentSel.anchorCol !== currentSel.headCol) {
+        e.preventDefault();
+        const startLine = Math.min(currentSel.anchorLine, currentSel.headLine);
+        const endLine = Math.max(currentSel.anchorLine, currentSel.headLine);
+        const startCol = currentSel.anchorLine === currentSel.headLine
+          ? Math.min(currentSel.anchorCol, currentSel.headCol)
+          : (currentSel.anchorLine < currentSel.headLine ? currentSel.anchorCol : currentSel.headCol);
+        const endCol = currentSel.anchorLine === currentSel.headLine
+          ? Math.max(currentSel.anchorCol, currentSel.headCol)
+          : (currentSel.anchorLine < currentSel.headLine ? currentSel.headCol : currentSel.anchorCol);
+        
+        // Extract selected text
+        let selectedText = '';
+        if (startLine === endLine) {
+          selectedText = lines[startLine].substring(startCol, endCol);
+        } else {
+          selectedText = lines[startLine].substring(startCol) + '\n';
+          for (let i = startLine + 1; i < endLine; i++) {
+            selectedText += lines[i] + '\n';
+          }
+          selectedText += lines[endLine].substring(0, endCol);
+        }
+        
+        // Copy to clipboard
+        try {
+          await navigator.clipboard.writeText(selectedText);
+        } catch (err) {
+          console.error('Failed to copy to clipboard:', err);
+        }
+      }
+      return;
+    }
+
+    // Cut (Ctrl+X / Cmd+X)
+    if (e.key === 'x' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      if (currentSel.anchorLine !== currentSel.headLine || currentSel.anchorCol !== currentSel.headCol) {
+        e.preventDefault();
+        const startLine = Math.min(currentSel.anchorLine, currentSel.headLine);
+        const endLine = Math.max(currentSel.anchorLine, currentSel.headLine);
+        const startCol = currentSel.anchorLine === currentSel.headLine
+          ? Math.min(currentSel.anchorCol, currentSel.headCol)
+          : (currentSel.anchorLine < currentSel.headLine ? currentSel.anchorCol : currentSel.headCol);
+        const endCol = currentSel.anchorLine === currentSel.headLine
+          ? Math.max(currentSel.anchorCol, currentSel.headCol)
+          : (currentSel.anchorLine < currentSel.headLine ? currentSel.headCol : currentSel.anchorCol);
+        
+        // Extract selected text
+        let selectedText = '';
+        if (startLine === endLine) {
+          selectedText = lines[startLine].substring(startCol, endCol);
+        } else {
+          selectedText = lines[startLine].substring(startCol) + '\n';
+          for (let i = startLine + 1; i < endLine; i++) {
+            selectedText += lines[i] + '\n';
+          }
+          selectedText += lines[endLine].substring(0, endCol);
+        }
+        
+        // Copy to clipboard and delete selection
+        try {
+          await navigator.clipboard.writeText(selectedText);
+          const range = {
+            startLine,
+            startCol,
+            endLine,
+            endCol,
+          };
+          applyLocalEdit(range, '');
+          @pendingEdits++;
+          const newSelection: Selection = {
+            anchorLine: startLine,
+            anchorCol: startCol,
+            headLine: startLine,
+            headCol: startCol,
+          };
+          @selections = [newSelection];
+          const result = await editorEngine.editBufferWithSelections(
+            @file.id,
+            { range, newText: '' },
+            [newSelection],
+          );
+          @serverVersion = result.version;
+        } catch (err) {
+          console.error('Failed to cut to clipboard:', err);
+        } finally {
+          @pendingEdits--;
+        }
+      }
+      return;
+    }
+
+    // Paste (Ctrl+V / Cmd+V)
+    if (e.key === 'v' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      e.preventDefault();
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          await onInput(text, true); // Skip auto-pair for paste
+        }
+      } catch (err) {
+        console.error('Failed to paste from clipboard:', err);
+      }
+      return;
+    }
+
+    // Handle Word Navigation (Ctrl+Left / Ctrl+Right)
+    if (e.key === 'ArrowLeft' && (e.ctrlKey || e.metaKey) && !e.altKey) {
+      e.preventDefault();
+      const newCol = findWordBoundary(currentLine, currentSel.headCol, 'left');
+      newSel = {
+        anchorLine: e.shiftKey ? currentSel.anchorLine : currentSel.headLine,
+        anchorCol: e.shiftKey ? currentSel.anchorCol : newCol,
+        headLine: currentSel.headLine,
+        headCol: newCol,
+      };
+    } else if (e.key === 'ArrowRight' && (e.ctrlKey || e.metaKey) && !e.altKey) {
+      e.preventDefault();
+      const newCol = findWordBoundary(currentLine, currentSel.headCol, 'right');
+      newSel = {
+        anchorLine: e.shiftKey ? currentSel.anchorLine : currentSel.headLine,
+        anchorCol: e.shiftKey ? currentSel.anchorCol : newCol,
+        headLine: currentSel.headLine,
+        headCol: newCol,
+      };
+    }
+
+    // Handle Line Deletion (Ctrl+Shift+K / Cmd+Shift+K)
+    if (e.key === 'k' && (e.ctrlKey || e.metaKey) && e.shiftKey && !@showCompletion) {
+      e.preventDefault();
+      
+      const startLine = Math.min(currentSel.anchorLine, currentSel.headLine);
+      const endLine = Math.max(currentSel.anchorLine, currentSel.headLine);
+      
+      // Delete entire lines (including newline)
+      let range;
+      if (endLine < lines.length - 1) {
+        // Not the last line - delete including newline
+        range = {
+          startLine,
+          startCol: 0,
+          endLine: endLine + 1,
+          endCol: 0,
+        };
+      } else if (startLine > 0) {
+        // Last line - delete newline from previous line
+        range = {
+          startLine: startLine - 1,
+          startCol: lines[startLine - 1].length,
+          endLine,
+          endCol: lines[endLine].length,
+        };
+      } else {
+        // Only line in file - just clear it
+        range = {
+          startLine: 0,
+          startCol: 0,
+          endLine: 0,
+          endCol: lines[0].length,
+        };
+      }
+      
+      applyLocalEdit(range, '');
+      @pendingEdits++;
+      
+      const newSelection: Selection = {
+        anchorLine: range.startLine,
+        anchorCol: range.startCol,
+        headLine: range.startLine,
+        headCol: range.startCol,
+      };
+      @selections = [newSelection];
+      
+      try {
+        const result = await editorEngine.editBufferWithSelections(
+          @file.id,
+          { range, newText: '' },
+          [newSelection],
+        );
+        @serverVersion = result.version;
+      } finally {
+        @pendingEdits--;
+      }
+      return;
+    }
 
     // Handle Backspace
     if (e.key === 'Backspace') {
@@ -509,7 +852,24 @@ export component RustEditor(props: {
     // Handle Enter
     if (e.key === 'Enter') {
       e.preventDefault();
-      await onInput('\n');
+      
+      if (editorSettings.autoIndent) {
+        const currentLine = lines[currentSel.headLine] || '';
+        const indent = getLineIndentation(currentLine);
+        
+        // Check if current line ends with opening brace - increase indent
+        const trimmed = currentLine.trim();
+        const shouldIncreaseIndent = trimmed.endsWith('{') || trimmed.endsWith('[') || trimmed.endsWith('(');
+        
+        const tabString = editorSettings.insertSpaces
+          ? ' '.repeat(editorSettings.tabSize)
+          : '\t';
+        
+        const newLineText = shouldIncreaseIndent ? '\n' + indent + tabString : '\n' + indent;
+        await onInput(newLineText, true);
+      } else {
+        await onInput('\n');
+      }
       return;
     }
 
@@ -554,9 +914,52 @@ export component RustEditor(props: {
       }
     }
 
-    // Trigger completion (Ctrl+Space / Cmd+Space)
-    if (e.key === ' ' && (e.ctrlKey || e.metaKey)) {
+    // Signature help navigation (when not showing completion)
+    if (@showSignatureHelp && !@showCompletion) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        @selectedSignatureIndex = Math.max(0, @selectedSignatureIndex - 1);
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        @selectedSignatureIndex = Math.min(
+          (@signatureHelp?.signatures.length ?? 1) - 1,
+          @selectedSignatureIndex + 1,
+        );
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        @showSignatureHelp = false;
+        @signatureHelp = null;
+        return;
+      }
+    }
+
+    // Trigger signature help (Ctrl+Shift+Space / Cmd+Shift+Space)
+    if (e.key === ' ' && (e.ctrlKey || e.metaKey) && e.shiftKey) {
       e.preventDefault();
+      editorEngine
+        .getLspSignatureHelp(@file.id, currentSel.headLine, currentSel.headCol)
+        .then((help) => {
+          if (help && help.signatures.length > 0) {
+            @signatureHelp = help;
+            @selectedSignatureIndex = help.activeSignature ?? 0;
+            @showSignatureHelp = true;
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+
+    // Trigger completion (Ctrl+Space / Cmd+Space without Shift)
+    if (e.key === ' ' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      e.preventDefault();
+      // Dismiss signature help when completion opens
+      @showSignatureHelp = false;
+      @signatureHelp = null;
+      
       editorEngine.getLspCompletion(@file.id, currentSel.headLine, currentSel.headCol).then(
         (items) => {
           if (items && items.length > 0) {
@@ -608,6 +1011,8 @@ export component RustEditor(props: {
 
     switch (e.key) {
       case 'ArrowLeft':
+        // Skip if Ctrl/Cmd pressed (handled by word navigation above)
+        if (e.ctrlKey || e.metaKey) break;
         e.preventDefault();
         if (currentSel.headCol > 0) {
           newSel = {
@@ -629,6 +1034,8 @@ export component RustEditor(props: {
         break;
 
       case 'ArrowRight':
+        // Skip if Ctrl/Cmd pressed (handled by word navigation above)
+        if (e.ctrlKey || e.metaKey) break;
         e.preventDefault();
         if (currentSel.headCol < currentLineLength) {
           newSel = {
@@ -714,6 +1121,11 @@ export component RustEditor(props: {
       headCol: col,
     };
     @selections = [newSelection];
+
+    // Focus the hidden textarea so keyboard input is captured
+    if (@inputTextarea) {
+      @inputTextarea.focus();
+    }
 
     if (@file) {
       editorEngine.setSelections(@file.id, [newSelection]).catch(console.error);
@@ -811,7 +1223,7 @@ export component RustEditor(props: {
     }
   });
 
-  <div class="relative h-full w-full bg-editor-bg text-text-primary">
+  <div class="relative h-full w-full bg-editor-bg text-text-primary" onMouseDown={() => { if (@inputTextarea) @inputTextarea.focus(); }}>
     <div {ref containerRef} class="relative h-full w-full overflow-y-auto" {onScroll}>
       const contentLineCount =
         @editorContent === '' ? 1 : @editorContent.split('\n').length;
@@ -850,6 +1262,50 @@ export component RustEditor(props: {
               onMouseUp={handleMouseUp}
             />
           }
+          if (@showSignatureHelp && @signatureHelp && @selections.length > 0) {
+            const cursorLine = @selections[0].headLine;
+            const cursorCol = @selections[0].headCol;
+            const activeIndex = @selectedSignatureIndex;
+            const sig = @signatureHelp.signatures[activeIndex];
+            const activeParam = @signatureHelp.activeParameter;
+
+            <div
+              class="absolute max-w-[600px] rounded border border-border-default bg-bg-elevated shadow-lg z-20 px-3 py-2"
+              style={{
+                top: Math.max(0, (cursorLine - 1) * 20) + 'px',
+                left: Math.max(8, cursorCol * 8 + 8) + 'px',
+              }}
+              data-testid="signature-help"
+            >
+              <div class="text-[13px] font-mono text-white">
+                if (sig.parameters && activeParam !== undefined && sig.parameters[activeParam]) {
+                  const param = sig.parameters[activeParam];
+                  const paramLabel = param.label;
+                  const labelIndex = sig.label.indexOf(paramLabel);
+                  
+                  if (labelIndex !== -1) {
+                    {sig.label.substring(0, labelIndex)}
+                    <span class="font-bold text-blue-400">{paramLabel}</span>
+                    {sig.label.substring(labelIndex + paramLabel.length)}
+                  } else {
+                    {sig.label}
+                  }
+                } else {
+                  {sig.label}
+                }
+              </div>
+              if (sig.documentation) {
+                <div class="text-[11px] text-white/60 mt-1 max-w-[500px]">
+                  {sig.documentation}
+                </div>
+              }
+              if (@signatureHelp.signatures.length > 1) {
+                <div class="text-[10px] text-white/40 mt-1">
+                  {String(activeIndex + 1)}{" of "}{String(@signatureHelp.signatures.length)}
+                </div>
+              }
+            </div>
+          }
           if (@showCompletion && @completionItems.length > 0 && @selections.length > 0) {
             const cursorLine = @selections[0].headLine;
             <div
@@ -876,7 +1332,7 @@ export component RustEditor(props: {
           }
         </div>
       </div>
-      <EditorInput {onInput} {onKeyDown} />
+      <EditorInput {onInput} {onKeyDown} onReady={(el: HTMLTextAreaElement) => { @inputTextarea = el; }} />
     </div>
 
     <div class="pointer-events-none absolute right-2 top-2 bottom-2 flex flex-col items-end gap-2">

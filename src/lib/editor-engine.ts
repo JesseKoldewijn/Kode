@@ -253,6 +253,19 @@ export const editorEngine = {
     });
     return result ?? null;
   },
+
+  async getLspSignatureHelp(
+    bufferId: string,
+    line: number,
+    character: number
+  ): Promise<LspSignatureHelp | null> {
+    const result = await invoke<LspSignatureHelp | null>('lsp_signature_help', {
+      bufferId,
+      line,
+      character,
+    });
+    return result ?? null;
+  },
 };
 
 export interface LspLocation {
@@ -272,4 +285,21 @@ export interface LspCompletionItem {
   kind?: number;
   detail?: string;
   insertText?: string;
+}
+
+export interface LspParameterInformation {
+  label: string;
+  documentation?: string;
+}
+
+export interface LspSignatureInformation {
+  label: string;
+  documentation?: string;
+  parameters?: LspParameterInformation[];
+}
+
+export interface LspSignatureHelp {
+  signatures: LspSignatureInformation[];
+  activeSignature?: number;
+  activeParameter?: number;
 }

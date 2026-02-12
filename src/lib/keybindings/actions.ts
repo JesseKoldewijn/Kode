@@ -264,6 +264,13 @@ export const actions: Action[] = [
     defaultBinding: { key: 'alt+z', mac: 'alt+z' },
   },
   {
+    id: 'editor.showSignatureHelp',
+    label: 'Show Signature Help',
+    category: 'Editor',
+    description: 'Show parameter hints for the current function call',
+    defaultBinding: { key: 'ctrl+shift+space', mac: 'cmd+shift+space', when: 'editorFocus' },
+  },
+  {
     id: 'editor.formatDocument',
     label: 'Format Document',
     category: 'Editor',

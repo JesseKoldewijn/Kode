@@ -27,6 +27,20 @@ vi.mock('@tauri-apps/api/core', () => ({
         return Promise.resolve(null);
       case 'lsp_completion':
         return Promise.resolve(null);
+      case 'lsp_signature_help':
+        return Promise.resolve({
+          signatures: [
+            {
+              label: 'mockFunction(param: string): void',
+              documentation: 'Mock signature help for testing',
+              parameters: [
+                { label: 'param: string', documentation: 'Parameter description' },
+              ],
+            },
+          ],
+          activeSignature: 0,
+          activeParameter: 0,
+        });
       default:
         return Promise.resolve(null);
     }

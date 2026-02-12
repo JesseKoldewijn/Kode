@@ -20,9 +20,9 @@ import {
   getDemoWorkspacePath,
   resetFilesystemMocks,
 } from './filesystem.mock';
-import { getMockFileContent } from './data/sample-project';
 import { handleTerminalCommand, resetTerminalMocks } from './terminal.mock';
 import { handleAgentCommand, resetAgentMocks } from './agent.mock';
+import { handleEditorCommand, isEditorCommand, resetEditorMocks } from './editor.mock';
 
 // Re-export for convenience
 export { getDemoWorkspacePath } from './filesystem.mock';
@@ -175,65 +175,9 @@ function handleIPCCommand(cmd: string, args: Record<string, unknown>): unknown {
     return null;
   }
 
-  // Editor engine commands (mock for browser mode - no Rust editor backend)
-  if (cmd === 'open_buffer') {
-    const path = args.path as string;
-    const content = getMockFileContent(path) ?? '';
-    const lines = content.split('\n');
-    const ext = path.split('.').pop()?.toLowerCase() ?? '';
-    const language =
-      ext === 'ts' || ext === 'tsx' ? 'typescript' : ext === 'js' || ext === 'jsx' ? 'javascript' : ext;
-    return {
-      id: path,
-      language,
-      lineCount: lines.length,
-      charCount: content.length,
-      version: 0,
-      isDirty: false,
-      lineEnding: '\n',
-    };
-  }
-  if (cmd === 'close_buffer') {
-    return undefined;
-  }
-  if (cmd === 'get_buffer_info') {
-    const bufferId = args.bufferId as string;
-    const content = getMockFileContent(bufferId) ?? '';
-    const lines = content.split('\n');
-    return {
-      id: bufferId,
-      language: 'typescript',
-      lineCount: lines.length,
-      charCount: content.length,
-      version: 0,
-      isDirty: false,
-      lineEnding: '\n',
-    };
-  }
-  if (cmd === 'get_highlights') {
-    return { bufferId: args.bufferId, version: 0, lines: [], totalLines: 0 };
-  }
-  if (cmd === 'lsp_has_session') {
-    return false;
-  }
-  if (cmd === 'lsp_get_diagnostics') {
-    return [];
-  }
-  if (cmd === 'lsp_goto_definition' || cmd === 'lsp_hover' || cmd === 'lsp_completion') {
-    return null;
-  }
-  if (
-    cmd === 'get_selections' ||
-    cmd === 'search_buffer' ||
-    cmd === 'get_symbols' ||
-    cmd === 'get_fold_ranges' ||
-    cmd === 'undo_buffer' ||
-    cmd === 'redo_buffer' ||
-    cmd === 'get_history_state' ||
-    cmd === 'edit_buffer' ||
-    cmd === 'set_selections'
-  ) {
-    return null;
+  // Editor engine commands - routed to dedicated editor mock module
+  if (isEditorCommand(cmd)) {
+    return handleEditorCommand(cmd, args);
   }
 
   // Git commands (mock responses)
@@ -267,6 +211,7 @@ export function resetMocks(): void {
   resetFilesystemMocks();
   resetTerminalMocks();
   resetAgentMocks();
+  resetEditorMocks();
   console.log('[Kode Mocks] All mocks reset');
 }
 
