@@ -4,6 +4,7 @@ import {
   type SearchMatch,
   type DocumentSymbol,
   type FoldRange,
+  type LspSignatureHelp,
 } from '../../src/lib/editor-engine';
 
 const mockInvoke = vi.fn(async (cmd: string, args: any) => {
@@ -57,6 +58,24 @@ const mockInvoke = vi.fn(async (cmd: string, args: any) => {
       isDirty: false,
       lineEnding: 'LF',
     };
+  }
+
+  if (cmd === 'lsp_signature_help') {
+    const signatureHelp: LspSignatureHelp = {
+      signatures: [
+        {
+          label: 'testFunction(param1: string, param2: number): void',
+          documentation: 'Test function signature',
+          parameters: [
+            { label: 'param1: string', documentation: 'First parameter' },
+            { label: 'param2: number', documentation: 'Second parameter' },
+          ],
+        },
+      ],
+      activeSignature: 0,
+      activeParameter: 0,
+    };
+    return signatureHelp;
   }
 
   return null;
@@ -148,5 +167,45 @@ describe('editorEngine integration wrappers', () => {
       isDirty: expect.any(Boolean),
       lineEnding: expect.any(String),
     });
+  });
+
+  it('getLspSignatureHelp calls invoke with correct command and arguments', async () => {
+    const result = await editorEngine.getLspSignatureHelp('buffer-1', 5, 20);
+
+    // Verify IPC contract: correct command name and argument shape
+    expect(mockInvoke).toHaveBeenCalledWith('lsp_signature_help', {
+      bufferId: 'buffer-1',
+      line: 5,
+      character: 20,
+    });
+
+    // Verify return value structure
+    expect(result).toBeTruthy();
+    expect(result!.signatures).toHaveLength(1);
+    expect(result!.signatures[0]).toMatchObject({
+      label: expect.any(String),
+      documentation: expect.any(String),
+      parameters: expect.arrayContaining([
+        expect.objectContaining({
+          label: expect.any(String),
+          documentation: expect.any(String),
+        }),
+      ]),
+    });
+    expect(result!.activeSignature).toBe(0);
+    expect(result!.activeParameter).toBe(0);
+  });
+
+  it('getLspSignatureHelp returns null when LSP returns null', async () => {
+    mockInvoke.mockResolvedValueOnce(null);
+
+    const result = await editorEngine.getLspSignatureHelp('buffer-1', 5, 20);
+
+    expect(mockInvoke).toHaveBeenCalledWith('lsp_signature_help', {
+      bufferId: 'buffer-1',
+      line: 5,
+      character: 20,
+    });
+    expect(result).toBeNull();
   });
 });

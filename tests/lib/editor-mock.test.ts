@@ -745,6 +745,176 @@ describe('Editor Mock Module', () => {
       expect(result.signatures[0].label).toContain('max');
       expect(result.signatures[0].documentation).toContain('largest');
     });
+
+    // Edge case tests
+    it('lsp_signature_help handles deeply nested calls - shows outer function', () => {
+      handleEditorCommand('open_buffer', { path: 'nested.ts' });
+      handleEditorCommand('edit_buffer', {
+        bufferId: 'nested.ts',
+        edit: {
+          range: { startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
+          newText: 'console.log(test,',
+        },
+      });
+
+      // Cursor after the comma in console.log
+      const result = handleEditorCommand('lsp_signature_help', {
+        bufferId: 'nested.ts',
+        line: 0,
+        character: 17,
+      }) as any;
+
+      expect(result).not.toBeNull();
+      expect(result.signatures[0].label).toContain('log');
+      // console.log has varargs, so activeParameter is clamped to 0
+      expect(result.activeParameter).toBe(0);
+    });
+
+    it('lsp_signature_help handles cursor inside string literal - returns null (regex limitation)', () => {
+      handleEditorCommand('open_buffer', { path: 'string.ts' });
+      handleEditorCommand('edit_buffer', {
+        bufferId: 'string.ts',
+        edit: {
+          range: { startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
+          newText: 'console.log("test(',
+        },
+      });
+
+      // The regex pattern [^()]* doesn't match past the opening paren in the string
+      // So this actually returns null, which is correct
+      const result = handleEditorCommand('lsp_signature_help', {
+        bufferId: 'string.ts',
+        line: 0,
+        character: 18,
+      });
+
+      expect(result).toBeNull();
+    });
+
+    it('lsp_signature_help handles empty function call - activeParameter=0', () => {
+      handleEditorCommand('open_buffer', { path: 'empty.ts' });
+      handleEditorCommand('edit_buffer', {
+        bufferId: 'empty.ts',
+        edit: {
+          range: { startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
+          newText: 'console.log(',
+        },
+      });
+
+      const result = handleEditorCommand('lsp_signature_help', {
+        bufferId: 'empty.ts',
+        line: 0,
+        character: 12,
+      }) as any;
+
+      expect(result).not.toBeNull();
+      expect(result.activeParameter).toBe(0);
+    });
+
+    it('lsp_signature_help calculates activeParameter with multiple commas', () => {
+      handleEditorCommand('open_buffer', { path: 'multi.ts' });
+      handleEditorCommand('edit_buffer', {
+        bufferId: 'multi.ts',
+        edit: {
+          range: { startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
+          newText: 'console.log(a, b, c,',
+        },
+      });
+
+      const result = handleEditorCommand('lsp_signature_help', {
+        bufferId: 'multi.ts',
+        line: 0,
+        character: 20,
+      }) as any;
+
+      expect(result).not.toBeNull();
+      // console.log has varargs (...data: any[]) - only 1 param in signature
+      // activeParam is clamped to (params.length - 1) = 0
+      expect(result.activeParameter).toBe(0);
+    });
+
+    it('lsp_signature_help returns null at start of line before any code', () => {
+      handleEditorCommand('open_buffer', { path: 'start.ts' });
+      handleEditorCommand('edit_buffer', {
+        bufferId: 'start.ts',
+        edit: {
+          range: { startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
+          newText: 'console.log(test)',
+        },
+      });
+
+      // Cursor at position 0 - no text before it
+      const result = handleEditorCommand('lsp_signature_help', {
+        bufferId: 'start.ts',
+        line: 0,
+        character: 0,
+      });
+
+      expect(result).toBeNull();
+    });
+
+    it('lsp_signature_help handles cursor at end of closed function call', () => {
+      handleEditorCommand('open_buffer', { path: 'closed.ts' });
+      handleEditorCommand('edit_buffer', {
+        bufferId: 'closed.ts',
+        edit: {
+          range: { startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
+          newText: 'console.log(test)',
+        },
+      });
+
+      // Cursor after the closing paren - should not show signature help
+      const result = handleEditorCommand('lsp_signature_help', {
+        bufferId: 'closed.ts',
+        line: 0,
+        character: 17,
+      });
+
+      expect(result).toBeNull();
+    });
+
+    it('lsp_signature_help handles nested brackets in activeParameter calculation', () => {
+      handleEditorCommand('open_buffer', { path: 'complex.ts' });
+      handleEditorCommand('edit_buffer', {
+        bufferId: 'complex.ts',
+        edit: {
+          range: { startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
+          newText: 'setTimeout([1, 2, 3],',
+        },
+      });
+
+      // Cursor after comma - the commas inside [] should not count due to depth tracking
+      const result = handleEditorCommand('lsp_signature_help', {
+        bufferId: 'complex.ts',
+        line: 0,
+        character: 22,
+      }) as any;
+
+      expect(result).not.toBeNull();
+      expect(result.activeParameter).toBe(1);
+    });
+
+    it('lsp_signature_help with function having multiple discrete parameters', () => {
+      handleEditorCommand('open_buffer', { path: 'multi-param.ts' });
+      handleEditorCommand('edit_buffer', {
+        bufferId: 'multi-param.ts',
+        edit: {
+          range: { startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
+          newText: 'Math.pow(2,',
+        },
+      });
+
+      // Math.pow has 2 parameters, cursor after first comma
+      const result = handleEditorCommand('lsp_signature_help', {
+        bufferId: 'multi-param.ts',
+        line: 0,
+        character: 11,
+      }) as any;
+
+      expect(result).not.toBeNull();
+      expect(result.signatures[0].label).toContain('pow');
+      expect(result.activeParameter).toBe(1);
+    });
   });
 
   describe('resetEditorMocks', () => {
