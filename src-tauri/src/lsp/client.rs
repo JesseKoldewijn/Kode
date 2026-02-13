@@ -637,6 +637,47 @@ pub async fn notify_did_close(buffer_id: String) -> std::result::Result<(), Stri
     Ok(())
 }
 
+/// Notify LSP that a document was saved
+/// Notify LSP that a document was saved (internal function)
+async fn notify_did_save(buffer_id: String) -> std::result::Result<(), String> {
+    let uri = path_to_uri(&buffer_id);
+    let workspace_root = workspace_root_from_path(&buffer_id);
+    let key = match session_key(&workspace_root, &buffer_id) {
+        Some(k) => k,
+        None => return Ok(()),
+    };
+    let session = {
+        let sessions = SESSIONS.read().await;
+        sessions.get(&key).cloned()
+    };
+    if let Some(s) = session {
+        // Get the current content from buffer manager
+        let content = {
+            let map = MANAGER.read().await;
+            let buf = map.get(&buffer_id)
+                .ok_or_else(|| format!("Buffer not found: {}", buffer_id))?;
+            let b = buf.read().await;
+            b.rope.to_string()
+        };
+        
+        let msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didSave",
+            "params": {
+                "textDocument": { "uri": uri },
+                "text": content
+            }
+        });
+        s.send_raw(&msg).await?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn notify_lsp_did_save(buffer_id: String) -> std::result::Result<(), String> {
+    notify_did_save(buffer_id).await
+}
+
 #[tauri::command]
 pub async fn lsp_has_session(buffer_id: String) -> bool {
     let workspace_root = workspace_root_from_path(&buffer_id);

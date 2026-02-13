@@ -570,6 +570,11 @@ export async function saveFile(id: string): Promise<void> {
     await fs.writeFile(file.path, file.content);
     file.isDirty = false;
     notifyOpenFilesSubscribers();
+    
+    // Notify LSP that file was saved
+    editorEngine.notifyLspDidSave(id).catch((err) => {
+      console.warn('[Workspace] Failed to notify LSP didSave:', err);
+    });
   } catch (error) {
     console.error('Failed to save file:', error);
   }

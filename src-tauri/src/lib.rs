@@ -247,6 +247,7 @@ pub fn run() {
             crate::lsp::client::lsp_hover,
             crate::lsp::client::lsp_completion,
             crate::lsp::client::lsp_signature_help,
+            crate::lsp::client::notify_lsp_did_save,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Kode");

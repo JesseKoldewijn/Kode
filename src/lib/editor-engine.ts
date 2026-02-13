@@ -266,6 +266,14 @@ export const editorEngine = {
     });
     return result ?? null;
   },
+
+  async notifyLspDidSave(bufferId: string): Promise<void> {
+    try {
+      await invoke('notify_lsp_did_save', { bufferId });
+    } catch (error) {
+      console.warn('[EditorEngine] Failed to notify LSP didSave:', error);
+    }
+  },
 };
 
 export interface LspLocation {
