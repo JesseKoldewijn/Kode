@@ -25,6 +25,8 @@ export component StatusBar() {
   let language = track<string>('Plain Text');
   let lspActive = track(false);
   let zoomLevel = track(100);
+  let errorCount = track(0);
+  let warningCount = track(0);
 
   // Subscribe to theme changes
   effect(() => {
@@ -75,12 +77,63 @@ export component StatusBar() {
         @language = 'Plain Text';
         @lspSupported = false;
         @lspActive = false;
+        @errorCount = 0;
+        @warningCount = 0;
       }
     });
 
     return () => {
       for (const t of lspCheckTimeouts) clearTimeout(t);
       unsubscribe();
+    };
+  });
+
+  // Poll diagnostics and update counts
+  effect(() => {
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const pollDiagnostics = async () => {
+      const activeFile = getActiveFile();
+      if (!activeFile) {
+        @errorCount = 0;
+        @warningCount = 0;
+        return;
+      }
+
+      try {
+        const diagnostics = await editorEngine.getLspDiagnostics(activeFile.path);
+        if (!diagnostics) {
+          @errorCount = 0;
+          @warningCount = 0;
+          return;
+        }
+
+        let errors = 0;
+        let warnings = 0;
+
+        for (const diag of diagnostics) {
+          if (diag.severity === 1) {
+            errors++;
+          } else if (diag.severity === 2) {
+            warnings++;
+          }
+        }
+
+        @errorCount = errors;
+        @warningCount = warnings;
+      } catch (err) {
+        @errorCount = 0;
+        @warningCount = 0;
+      }
+
+      // Poll again after 400ms
+      pollTimer = setTimeout(pollDiagnostics, 400);
+    };
+
+    pollDiagnostics();
+
+    return () => {
+      if (pollTimer) clearTimeout(pollTimer);
     };
   });
 
@@ -180,13 +233,13 @@ export component StatusBar() {
             d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm3.78-9.72a.75.75 0 0 0-1.06-1.06L6.75 9.19 5.28 7.72a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0l4.5-4.5z"
           />
         </svg>
-        <span>{'0'}</span>
+        <span>{@errorCount}</span>
         <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor">
           <path
             d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575L6.457 1.047zM8 5a.75.75 0 0 0-.75.75v2.5a.75.75 0 0 0 1.5 0v-2.5A.75.75 0 0 0 8 5zm1 6a1 1 0 1 0-2 0 1 1 0 0 0 2 0z"
           />
         </svg>
-        <span>{'0'}</span>
+        <span>{@warningCount}</span>
       </span>
     </div>
 
