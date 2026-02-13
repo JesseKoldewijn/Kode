@@ -4,10 +4,12 @@
 use crate::editor::buffer::MANAGER;
 use crate::editor::error::{EditorError, Result};
 use lsp_types::{
-    CompletionParams, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
-    GotoDefinitionParams, HoverParams, InitializeParams, Position,
-    SignatureHelpParams, TextDocumentContentChangeEvent, TextDocumentItem,
-    TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier,
+    ClientCapabilities, CompletionClientCapabilities, CompletionParams,
+    DidChangeTextDocumentParams, DidOpenTextDocumentParams, GotoDefinitionParams,
+    HoverClientCapabilities, HoverParams, InitializeParams, MarkupKind, Position,
+    SignatureHelpClientCapabilities, SignatureHelpParams, TextDocumentClientCapabilities,
+    TextDocumentContentChangeEvent, TextDocumentItem, TextDocumentPositionParams, Url,
+    VersionedTextDocumentIdentifier, WorkspaceClientCapabilities,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -363,7 +365,137 @@ async fn ensure_session(workspace_root: &str, first_uri: &str) -> std::result::R
     drop(sessions);
 
     let root_uri = Url::parse(&path_to_uri(workspace_root)).map_err(|e| e.to_string())?;
+    
+    // Declare comprehensive client capabilities
+    let capabilities = ClientCapabilities {
+        workspace: Some(WorkspaceClientCapabilities {
+            apply_edit: Some(true),
+            workspace_edit: None,
+            did_change_configuration: None,
+            did_change_watched_files: None,
+            symbol: None,
+            execute_command: None,
+            workspace_folders: Some(true),
+            configuration: Some(true),
+            semantic_tokens: None,
+            code_lens: None,
+            file_operations: None,
+            inline_value: None,
+            inlay_hint: None,
+            diagnostic: None,
+        }),
+        text_document: Some(TextDocumentClientCapabilities {
+            synchronization: Some(lsp_types::TextDocumentSyncClientCapabilities {
+                dynamic_registration: Some(false),
+                will_save: Some(false),
+                will_save_wait_until: Some(false),
+                did_save: Some(true),
+            }),
+            completion: Some(CompletionClientCapabilities {
+                dynamic_registration: Some(false),
+                completion_item: Some(lsp_types::CompletionItemCapability {
+                    snippet_support: Some(false),
+                    commit_characters_support: Some(false),
+                    documentation_format: Some(vec![MarkupKind::Markdown, MarkupKind::PlainText]),
+                    deprecated_support: Some(true),
+                    preselect_support: Some(false),
+                    tag_support: None,
+                    insert_replace_support: Some(false),
+                    resolve_support: None,
+                    insert_text_mode_support: None,
+                    label_details_support: Some(false),
+                }),
+                completion_item_kind: None,
+                context_support: Some(true),
+                insert_text_mode: None,
+                completion_list: None,
+            }),
+            hover: Some(HoverClientCapabilities {
+                dynamic_registration: Some(false),
+                content_format: Some(vec![MarkupKind::Markdown, MarkupKind::PlainText]),
+            }),
+            signature_help: Some(SignatureHelpClientCapabilities {
+                dynamic_registration: Some(false),
+                signature_information: Some(lsp_types::SignatureInformationSettings {
+                    documentation_format: Some(vec![MarkupKind::Markdown, MarkupKind::PlainText]),
+                    parameter_information: Some(lsp_types::ParameterInformationSettings {
+                        label_offset_support: Some(true),
+                    }),
+                    active_parameter_support: Some(true),
+                }),
+                context_support: Some(true),
+            }),
+            references: Some(lsp_types::ReferenceClientCapabilities {
+                dynamic_registration: Some(false),
+            }),
+            document_highlight: None,
+            document_symbol: None,
+            formatting: None,
+            range_formatting: None,
+            on_type_formatting: None,
+            declaration: Some(lsp_types::GotoCapability {
+                dynamic_registration: Some(false),
+                link_support: Some(false),
+            }),
+            definition: Some(lsp_types::GotoCapability {
+                dynamic_registration: Some(false),
+                link_support: Some(false),
+            }),
+            type_definition: Some(lsp_types::GotoCapability {
+                dynamic_registration: Some(false),
+                link_support: Some(false),
+            }),
+            implementation: Some(lsp_types::GotoCapability {
+                dynamic_registration: Some(false),
+                link_support: Some(false),
+            }),
+            code_action: None,
+            code_lens: None,
+            document_link: None,
+            color_provider: None,
+            rename: Some(lsp_types::RenameClientCapabilities {
+                dynamic_registration: Some(false),
+                prepare_support: Some(true),
+                prepare_support_default_behavior: None,
+                honors_change_annotations: Some(false),
+            }),
+            publish_diagnostics: Some(lsp_types::PublishDiagnosticsClientCapabilities {
+                related_information: Some(true),
+                tag_support: Some(lsp_types::TagSupport {
+                    value_set: vec![
+                        lsp_types::DiagnosticTag::UNNECESSARY,
+                        lsp_types::DiagnosticTag::DEPRECATED,
+                    ],
+                }),
+                version_support: Some(false),
+                code_description_support: Some(false),
+                data_support: Some(false),
+            }),
+            folding_range: None,
+            selection_range: None,
+            linked_editing_range: None,
+            call_hierarchy: None,
+            semantic_tokens: None,
+            moniker: None,
+            type_hierarchy: None,
+            inline_value: None,
+            inlay_hint: None,
+            diagnostic: None,
+        }),
+        window: None,
+        general: None,
+        experimental: None,
+    };
+
     let init_params = InitializeParams {
+        process_id: None,
+        #[allow(deprecated)]
+        root_uri: None,
+        #[allow(deprecated)]
+        root_path: None,
+        initialization_options: None,
+        capabilities,
+        trace: None,
         workspace_folders: Some(vec![lsp_types::WorkspaceFolder {
             uri: root_uri,
             name: std::path::Path::new(workspace_root)
@@ -376,7 +508,8 @@ async fn ensure_session(workspace_root: &str, first_uri: &str) -> std::result::R
             name: "kode".to_string(),
             version: Some("0.1.0".to_string()),
         }),
-        ..Default::default()
+        locale: None,
+        work_done_progress_params: Default::default(),
     };
     let params = serde_json::to_value(init_params).map_err(|e| e.to_string())?;
     let _result = session.send_request("initialize", params).await?;
