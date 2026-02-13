@@ -1,6 +1,7 @@
 import { track, effect, trackSplit } from 'ripple';
 import { editorEngine, type ViewportHighlights, type Selection, type HighlightedLine, type FoldRange, type LspDiagnostic } from '../../lib/editor-engine';
 import { EditorLine } from './EditorLine.ripple';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export component EditorViewport(props: {
   bufferId: string | null;
@@ -32,7 +33,6 @@ export component EditorViewport(props: {
   let cachedLines = track<string[]>([]);
   let lastBufferId = track<string | null>(null);
   let highlightFetchTimer: number | null = null; // NOT tracked - just a regular variable
-  let diagnosticsTimer: number | null = null;
   let hoverContent = track<string | null>(null);
   let hoverTimer: number | null = null;
   let lastHoverLine = 0;
@@ -71,13 +71,18 @@ export component EditorViewport(props: {
     }
   });
 
-  // Fetch LSP diagnostics when buffer is set (debounced; LSP sends after didOpen/didChange)
+  // Listen for LSP diagnostic events from backend
   effect(() => {
     const bid = @bufferIdProp;
     if (!bid) return () => {};
-    if (diagnosticsTimer !== null) clearTimeout(diagnosticsTimer);
-    diagnosticsTimer = setTimeout(() => {
-      editorEngine.getLspDiagnostics(bid).then((list) => {
+
+    let unlisten: UnlistenFn | null = null;
+
+    // Set up event listener
+    listen<{ path: string; diagnostics: LspDiagnostic[] }>('lsp-diagnostics', (event) => {
+      // Only update if this event is for the current buffer
+      if (event.payload.path === bid) {
+        const list = event.payload.diagnostics;
         @diagnostics = list;
         const byLine = new Map<number, LspDiagnostic[]>();
         for (const d of list) {
@@ -90,14 +95,31 @@ export component EditorViewport(props: {
           }
         }
         @diagnosticsByLine = byLine;
-      }).catch(() => {});
-    }, 400) as unknown as number;
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    }).catch((err) => {
+      console.error('[EditorViewport] Failed to set up diagnostic listener:', err);
+    });
+
+    // Also fetch initial diagnostics (in case LSP already has them)
+    editorEngine.getLspDiagnostics(bid).then((list) => {
+      @diagnostics = list;
+      const byLine = new Map<number, LspDiagnostic[]>();
+      for (const d of list) {
+        const start = d.range.startLine;
+        const end = d.range.endLine;
+        for (let line = start; line <= end; line++) {
+          const arr = byLine.get(line) ?? [];
+          arr.push(d);
+          byLine.set(line, arr);
+        }
+      }
+      @diagnosticsByLine = byLine;
+    }).catch(() => {});
 
     return () => {
-      if (diagnosticsTimer !== null) {
-        clearTimeout(diagnosticsTimer);
-        diagnosticsTimer = null;
-      }
+      if (unlisten) unlisten();
     };
   });
 

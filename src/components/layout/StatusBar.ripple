@@ -11,9 +11,10 @@ import {
   workspacePath,
 } from '../../lib/workspace';
 import type { CursorPosition, FileInfo } from '../../lib/workspace';
-import { editorEngine } from '../../lib/editor-engine';
+import { editorEngine, type LspDiagnostic } from '../../lib/editor-engine';
 import { subscribeToZoom, getZoomPercentage, resetZoom } from '../../lib/zoom';
 import { git } from '../../lib/tauri';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export component StatusBar() {
   let themeMode = track<ThemeMode>(currentMode);
@@ -88,20 +89,41 @@ export component StatusBar() {
     };
   });
 
-  // Poll diagnostics and update counts
+  // Listen for LSP diagnostic events and update counts
   effect(() => {
-    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    let unlisten: UnlistenFn | null = null;
 
-    const pollDiagnostics = async () => {
+    // Set up event listener for diagnostic updates
+    listen<{ path: string; diagnostics: LspDiagnostic[] }>('lsp-diagnostics', (event) => {
       const activeFile = getActiveFile();
-      if (!activeFile) {
-        @errorCount = 0;
-        @warningCount = 0;
+      if (!activeFile || event.payload.path !== activeFile.path) {
         return;
       }
 
-      try {
-        const diagnostics = await editorEngine.getLspDiagnostics(activeFile.path);
+      const diagnostics = event.payload.diagnostics;
+      let errors = 0;
+      let warnings = 0;
+
+      for (const diag of diagnostics) {
+        if (diag.severity === 1) {
+          errors++;
+        } else if (diag.severity === 2) {
+          warnings++;
+        }
+      }
+
+      @errorCount = errors;
+      @warningCount = warnings;
+    }).then((fn) => {
+      unlisten = fn;
+    }).catch((err) => {
+      console.error('[StatusBar] Failed to set up diagnostic listener:', err);
+    });
+
+    // Fetch initial counts
+    const activeFile = getActiveFile();
+    if (activeFile) {
+      editorEngine.getLspDiagnostics(activeFile.path).then((diagnostics) => {
         if (!diagnostics) {
           @errorCount = 0;
           @warningCount = 0;
@@ -121,19 +143,17 @@ export component StatusBar() {
 
         @errorCount = errors;
         @warningCount = warnings;
-      } catch (err) {
+      }).catch(() => {
         @errorCount = 0;
         @warningCount = 0;
-      }
-
-      // Poll again after 400ms
-      pollTimer = setTimeout(pollDiagnostics, 400);
-    };
-
-    pollDiagnostics();
+      });
+    } else {
+      @errorCount = 0;
+      @warningCount = 0;
+    }
 
     return () => {
-      if (pollTimer) clearTimeout(pollTimer);
+      if (unlisten) unlisten();
     };
   });
 

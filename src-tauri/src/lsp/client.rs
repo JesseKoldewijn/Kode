@@ -14,10 +14,28 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{oneshot, Mutex, RwLock};
 use tokio::time::{timeout, Duration};
+
+/// Global AppHandle for emitting diagnostic events
+static APP_HANDLE: RwLock<Option<AppHandle>> = RwLock::const_new(None);
+
+/// Set the global AppHandle for LSP event emission (called from main)
+pub async fn set_app_handle(handle: AppHandle) {
+    let mut app = APP_HANDLE.write().await;
+    *app = Some(handle);
+}
+
+/// Event payload for diagnostic updates
+#[derive(Clone, serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticsEvent {
+    pub path: String,
+    pub diagnostics: Vec<LspDiagnostic>,
+}
 
 /// LSP diagnostic for a single buffer (serializable for IPC).
 #[derive(Clone, serde::Serialize, Debug)]
@@ -275,8 +293,23 @@ async fn read_loop(
                                         })
                                     })
                                     .collect();
+                                
+                                // Store diagnostics
                                 let mut d = diagnostics.write().await;
-                                d.insert(uri.to_string(), list);
+                                d.insert(uri.to_string(), list.clone());
+                                drop(d);
+
+                                // Emit diagnostic event to frontend
+                                let path = uri_to_path(uri);
+                                if let Ok(app_handle) = APP_HANDLE.read().await.as_ref().ok_or("No AppHandle") {
+                                    let event = DiagnosticsEvent {
+                                        path,
+                                        diagnostics: list,
+                                    };
+                                    if let Err(e) = app_handle.emit("lsp-diagnostics", event) {
+                                        log::warn!("Failed to emit lsp-diagnostics event: {}", e);
+                                    }
+                                }
                             }
                         }
                     }

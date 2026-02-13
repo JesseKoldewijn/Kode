@@ -189,6 +189,12 @@ pub fn run() {
                 }
             }
 
+            // Initialize LSP client with AppHandle for event emission
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                crate::lsp::client::set_app_handle(app_handle).await;
+            });
+
             log::info!("Kode started successfully");
             Ok(())
         })
