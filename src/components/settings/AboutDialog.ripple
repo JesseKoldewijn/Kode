@@ -137,7 +137,7 @@ export component AboutDialog(props: AboutDialogProps) {
         <div class="flex items-center gap-3">
           <button
             class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded-md transition-colors"
-            onClick={() => handleOpenLink('https://github.com/Kode/Kode')}
+            onClick={() => handleOpenLink('https://github.com/JesseKoldewijn/Kode')}
           >
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
               <path
@@ -148,7 +148,7 @@ export component AboutDialog(props: AboutDialogProps) {
           </button>
           <button
             class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded-md transition-colors"
-            onClick={() => handleOpenLink('https://github.com/Kode/Kode/issues')}
+            onClick={() => handleOpenLink('https://github.com/JesseKoldewijn/Kode/issues')}
           >
             <svg
               class="w-4 h-4"
