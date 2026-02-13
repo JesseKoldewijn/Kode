@@ -1306,6 +1306,188 @@ function handleLspGotoDefinition(args: Record<string, unknown>): LspLocation | n
   return null;
 }
 
+/**
+ * Find all references to symbol at the given position
+ */
+function handleLspReferences(args: Record<string, unknown>): LspLocation[] {
+  const bufferId = args.bufferId as string;
+  const line = args.line as number;
+  const character = args.character as number;
+  const includeDeclaration = args.includeDeclaration !== false; // Default true
+
+  const buffer = buffers.get(bufferId);
+  if (!buffer) return [];
+
+  // Only support TypeScript/JavaScript
+  if (!['typescript', 'javascript', 'tsx', 'jsx'].includes(buffer.language)) {
+    return [];
+  }
+
+  const lines = buffer.content.split('\n');
+  if (line >= lines.length) return [];
+
+  const lineText = lines[line];
+  
+  // Extract word at cursor position
+  const beforeCursor = lineText.substring(0, character);
+  const afterCursor = lineText.substring(character);
+  
+  const beforeMatch = beforeCursor.match(/(\w*)$/);
+  const afterMatch = afterCursor.match(/^(\w*)/);
+  
+  if (!beforeMatch && !afterMatch) return [];
+  
+  const word = (beforeMatch?.[1] || '') + (afterMatch?.[1] || '');
+  if (!word) return [];
+
+  const references: LspLocation[] = [];
+  
+  // Search for all occurrences of the word in the buffer
+  const wordRegex = new RegExp(`\\b${word}\\b`, 'g');
+  
+  for (let i = 0; i < lines.length; i++) {
+    const lineContent = lines[i];
+    let match: RegExpExecArray | null;
+    
+    while ((match = wordRegex.exec(lineContent)) !== null) {
+      // Check if this occurrence is part of a declaration
+      // Match patterns like: "function word", "const word", "let word", "var word", "class word"
+      const beforeMatch = lineContent.substring(0, match.index).trim();
+      const isDeclaration = 
+        /\b(function|const|let|var|class)\s*$/.test(beforeMatch) ||
+        /\bexport\s+(function|const|class)\s*$/.test(beforeMatch);
+      
+      // Skip declarations if includeDeclaration is false
+      if (isDeclaration && !includeDeclaration) {
+        continue;
+      }
+      
+      references.push({
+        path: bufferId,
+        startLine: i,
+        startCharacter: match.index,
+        endLine: i,
+        endCharacter: match.index + word.length,
+      });
+    }
+  }
+
+  return references;
+}
+
+/**
+ * Prepare rename: check if rename is valid and get range
+ */
+function handleLspPrepareRename(args: Record<string, unknown>): LspPrepareRenameResult | null {
+  const bufferId = args.bufferId as string;
+  const line = args.line as number;
+  const character = args.character as number;
+
+  const buffer = buffers.get(bufferId);
+  if (!buffer) return null;
+
+  // Only support TypeScript/JavaScript
+  if (!['typescript', 'javascript', 'tsx', 'jsx'].includes(buffer.language)) {
+    return null;
+  }
+
+  const lines = buffer.content.split('\n');
+  if (line >= lines.length) return null;
+
+  const lineText = lines[line];
+  
+  // Extract word at cursor position
+  const beforeCursor = lineText.substring(0, character);
+  const afterCursor = lineText.substring(character);
+  
+  const beforeMatch = beforeCursor.match(/(\w*)$/);
+  const afterMatch = afterCursor.match(/^(\w*)/);
+  
+  if (!beforeMatch && !afterMatch) return null;
+  
+  const word = (beforeMatch?.[1] || '') + (afterMatch?.[1] || '');
+  if (!word) return null;
+
+  // Find the exact range of the word
+  const wordStart = character - (beforeMatch?.[1]?.length || 0);
+  const wordEnd = wordStart + word.length;
+
+  return {
+    range: {
+      startLine: line,
+      startCharacter: wordStart,
+      endLine: line,
+      endCharacter: wordEnd,
+    },
+    placeholder: word,
+  };
+}
+
+/**
+ * Rename symbol at the given position
+ */
+function handleLspRename(args: Record<string, unknown>): LspWorkspaceEdit | null {
+  const bufferId = args.bufferId as string;
+  const line = args.line as number;
+  const character = args.character as number;
+  const newName = args.newName as string;
+
+  const buffer = buffers.get(bufferId);
+  if (!buffer) return null;
+
+  // Only support TypeScript/JavaScript
+  if (!['typescript', 'javascript', 'tsx', 'jsx'].includes(buffer.language)) {
+    return null;
+  }
+
+  const lines = buffer.content.split('\n');
+  if (line >= lines.length) return null;
+
+  const lineText = lines[line];
+  
+  // Extract word at cursor position
+  const beforeCursor = lineText.substring(0, character);
+  const afterCursor = lineText.substring(character);
+  
+  const beforeMatch = beforeCursor.match(/(\w*)$/);
+  const afterMatch = afterCursor.match(/^(\w*)/);
+  
+  if (!beforeMatch && !afterMatch) return null;
+  
+  const word = (beforeMatch?.[1] || '') + (afterMatch?.[1] || '');
+  if (!word) return null;
+
+  const edits: LspTextEdit[] = [];
+  
+  // Find all occurrences of the word and create text edits
+  const wordRegex = new RegExp(`\\b${word}\\b`, 'g');
+  
+  for (let i = 0; i < lines.length; i++) {
+    const lineContent = lines[i];
+    let match: RegExpExecArray | null;
+    
+    while ((match = wordRegex.exec(lineContent)) !== null) {
+      edits.push({
+        range: {
+          startLine: i,
+          startCharacter: match.index,
+          endLine: i,
+          endCharacter: match.index + word.length,
+        },
+        newText: newName,
+      });
+    }
+  }
+
+  if (edits.length === 0) return null;
+
+  return {
+    changes: {
+      [bufferId]: edits,
+    },
+  };
+}
+
 // Mock signature database with common functions
 const SIGNATURE_DATABASE: Record<string, LspSignatureInformation[]> = {
   'console.log': [
@@ -1612,6 +1794,12 @@ export function handleEditorCommand(cmd: string, args: Record<string, unknown>):
       return handleLspCompletion(args);
     case 'lsp_goto_definition':
       return handleLspGotoDefinition(args);
+    case 'lsp_references':
+      return handleLspReferences(args);
+    case 'lsp_prepare_rename':
+      return handleLspPrepareRename(args);
+    case 'lsp_rename':
+      return handleLspRename(args);
     case 'lsp_signature_help':
       return handleLspSignatureHelp(args);
     case 'lsp_code_action':
@@ -1649,9 +1837,15 @@ export function isEditorCommand(cmd: string): boolean {
     'lsp_hover',
     'lsp_completion',
     'lsp_goto_definition',
+    'lsp_references',
+    'lsp_prepare_rename',
+    'lsp_rename',
     'lsp_signature_help',
     'lsp_code_action',
     'lsp_inlay_hints',
+    'notify_lsp_did_save',
+    'lsp_shutdown',
+    'lsp_shutdown_all',
   ].includes(cmd);
 }
 

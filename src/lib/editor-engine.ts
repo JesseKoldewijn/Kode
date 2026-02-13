@@ -274,6 +274,65 @@ export const editorEngine = {
       console.warn('[EditorEngine] Failed to notify LSP didSave:', error);
     }
   },
+
+  async lspShutdown(bufferId: string): Promise<void> {
+    try {
+      await invoke('lsp_shutdown', { bufferId });
+    } catch (error) {
+      console.warn('[EditorEngine] Failed to shutdown LSP:', error);
+    }
+  },
+
+  async lspShutdownAll(): Promise<void> {
+    try {
+      await invoke('lsp_shutdown_all');
+    } catch (error) {
+      console.warn('[EditorEngine] Failed to shutdown all LSP servers:', error);
+    }
+  },
+
+  async getLspReferences(
+    bufferId: string,
+    line: number,
+    character: number,
+    includeDeclaration: boolean = true
+  ): Promise<LspLocation[]> {
+    const result = await invoke<LspLocation[]>('lsp_references', {
+      bufferId,
+      line,
+      character,
+      includeDeclaration,
+    });
+    return result ?? [];
+  },
+
+  async getLspPrepareRename(
+    bufferId: string,
+    line: number,
+    character: number
+  ): Promise<LspPrepareRenameResult | null> {
+    const result = await invoke<LspPrepareRenameResult | null>('lsp_prepare_rename', {
+      bufferId,
+      line,
+      character,
+    });
+    return result ?? null;
+  },
+
+  async getLspRename(
+    bufferId: string,
+    line: number,
+    character: number,
+    newName: string
+  ): Promise<LspWorkspaceEdit | null> {
+    const result = await invoke<LspWorkspaceEdit | null>('lsp_rename', {
+      bufferId,
+      line,
+      character,
+      newName,
+    });
+    return result ?? null;
+  },
 };
 
 export interface LspLocation {
@@ -310,4 +369,28 @@ export interface LspSignatureHelp {
   signatures: LspSignatureInformation[];
   activeSignature?: number;
   activeParameter?: number;
+}
+
+export interface LspTextEdit {
+  range: {
+    startLine: number;
+    startCharacter: number;
+    endLine: number;
+    endCharacter: number;
+  };
+  newText: string;
+}
+
+export interface LspWorkspaceEdit {
+  changes: Record<string, LspTextEdit[]>;
+}
+
+export interface LspPrepareRenameResult {
+  range: {
+    startLine: number;
+    startCharacter: number;
+    endLine: number;
+    endCharacter: number;
+  };
+  placeholder: string;
 }

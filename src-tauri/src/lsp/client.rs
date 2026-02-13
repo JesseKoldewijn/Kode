@@ -112,6 +112,29 @@ pub struct LspSignatureHelp {
     pub active_parameter: Option<u32>,
 }
 
+/// Text edit for workspace edits.
+#[derive(Clone, serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct LspTextEdit {
+    pub range: LspRange,
+    pub new_text: String,
+}
+
+/// Workspace edit containing changes to multiple files.
+#[derive(Clone, serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct LspWorkspaceEdit {
+    pub changes: HashMap<String, Vec<LspTextEdit>>,
+}
+
+/// Range information for prepare rename.
+#[derive(Clone, serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct LspPrepareRenameResult {
+    pub range: LspRange,
+    pub placeholder: String,
+}
+
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 fn next_request_id() -> u64 {
@@ -231,6 +254,29 @@ impl LspSession {
             s.flush().await.map_err(|e| e.to_string())?;
         }
         Ok(())
+    }
+
+    async fn send_notification(&self, method: &str, params: Value) -> std::result::Result<(), String> {
+        let message = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params
+        });
+        self.send_raw(&message).await
+    }
+
+    async fn shutdown(&self) -> std::result::Result<(), String> {
+        // Send shutdown request
+        let shutdown_result = self.send_request("shutdown", serde_json::json!(null)).await;
+        
+        // Send exit notification (should be sent even if shutdown fails)
+        let _ = self.send_notification("exit", serde_json::json!(null)).await;
+        
+        // Close stdin to signal process termination
+        let mut stdin = self.stdin.lock().await;
+        *stdin = None;
+        
+        shutdown_result.map(|_| ())
     }
 
 }
@@ -1084,3 +1130,282 @@ pub async fn lsp_signature_help(
         _ => Ok(None),
     }
 }
+
+/// Shutdown LSP server for a specific file/workspace.
+#[tauri::command]
+pub async fn lsp_shutdown(buffer_id: String) -> Result<()> {
+    let workspace_root = workspace_root_from_path(&buffer_id);
+    let key = session_key(&workspace_root, &buffer_id)
+        .ok_or_else(|| EditorError::Io("No LSP server for this file type".to_string()))?;
+    
+    let session = {
+        let mut sessions = SESSIONS.write().await;
+        sessions.remove(&key)
+    };
+    
+    if let Some(s) = session {
+        s.shutdown().await.map_err(|e| EditorError::Io(e))?;
+    }
+    
+    Ok(())
+}
+
+/// Shutdown all active LSP servers (call on app exit or workspace change).
+#[tauri::command]
+pub async fn lsp_shutdown_all() -> Result<()> {
+    let sessions = {
+        let mut sessions_guard = SESSIONS.write().await;
+        let all_sessions: Vec<_> = sessions_guard.values().cloned().collect();
+        sessions_guard.clear();
+        all_sessions
+    };
+    
+    // Shutdown all sessions concurrently
+    let shutdown_futures: Vec<_> = sessions
+        .iter()
+        .map(|s| s.shutdown())
+        .collect();
+    
+    for result in futures::future::join_all(shutdown_futures).await {
+        if let Err(e) = result {
+            log::warn!("LSP shutdown warning: {}", e);
+        }
+    }
+    
+    Ok(())
+}
+
+/// Find all references to symbol at the given position.
+#[tauri::command]
+pub async fn lsp_references(
+    buffer_id: String,
+    line: u32,
+    character: u32,
+    include_declaration: bool,
+) -> Result<Vec<LspLocation>> {
+    let uri = path_to_uri(&buffer_id);
+    let workspace_root = workspace_root_from_path(&buffer_id);
+    let key = session_key(&workspace_root, &buffer_id)
+        .ok_or_else(|| EditorError::Io("No LSP server for this file type".to_string()))?;
+
+    let session = {
+        let sessions = SESSIONS.read().await;
+        sessions.get(&key).cloned()
+    };
+
+    let s = session
+        .ok_or_else(|| EditorError::Io("LSP not running for this workspace".to_string()))?;
+
+    let params = lsp_types::ReferenceParams {
+        text_document_position: TextDocumentPositionParams {
+            text_document: lsp_types::TextDocumentIdentifier {
+                uri: Url::parse(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
+            },
+            position: Position { line, character },
+        },
+        context: lsp_types::ReferenceContext {
+            include_declaration,
+        },
+        partial_result_params: Default::default(),
+        work_done_progress_params: Default::default(),
+    };
+
+    let params_value = serde_json::to_value(params).map_err(|e| EditorError::Io(e.to_string()))?;
+    let result = s
+        .send_request("textDocument/references", params_value)
+        .await
+        .map_err(|e| EditorError::Io(e.to_string()))?;
+
+    // Parse LSP Location[] response
+    match result {
+        Value::Null => Ok(Vec::new()),
+        Value::Array(arr) => {
+            let locations: Vec<LspLocation> = arr
+                .into_iter()
+                .filter_map(|loc_val| {
+                    let uri_str = loc_val.get("uri")?.as_str()?;
+                    let range = loc_val.get("range")?;
+                    let start = range.get("start")?;
+                    let end = range.get("end")?;
+
+                    Some(LspLocation {
+                        path: uri_to_path(uri_str),
+                        start_line: start.get("line")?.as_u64()? as u32,
+                        start_character: start.get("character")?.as_u64()? as u32,
+                        end_line: end.get("line")?.as_u64()? as u32,
+                        end_character: end.get("character")?.as_u64()? as u32,
+                    })
+                })
+                .collect();
+            Ok(locations)
+        }
+        _ => Ok(Vec::new()),
+    }
+}
+
+/// Prepare rename: check if rename is valid and get range + placeholder.
+#[tauri::command]
+pub async fn lsp_prepare_rename(
+    buffer_id: String,
+    line: u32,
+    character: u32,
+) -> Result<Option<LspPrepareRenameResult>> {
+    let uri = path_to_uri(&buffer_id);
+    let workspace_root = workspace_root_from_path(&buffer_id);
+    let key = session_key(&workspace_root, &buffer_id)
+        .ok_or_else(|| EditorError::Io("No LSP server for this file type".to_string()))?;
+
+    let session = {
+        let sessions = SESSIONS.read().await;
+        sessions.get(&key).cloned()
+    };
+
+    let s = session
+        .ok_or_else(|| EditorError::Io("LSP not running for this workspace".to_string()))?;
+
+    let params = TextDocumentPositionParams {
+        text_document: lsp_types::TextDocumentIdentifier {
+            uri: Url::parse(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
+        },
+        position: Position { line, character },
+    };
+
+    let params_value = serde_json::to_value(params).map_err(|e| EditorError::Io(e.to_string()))?;
+    let result = s
+        .send_request("textDocument/prepareRename", params_value)
+        .await
+        .map_err(|e| EditorError::Io(e.to_string()))?;
+
+    // Parse response (can be Range, { range, placeholder }, or null)
+    match result {
+        Value::Null => Ok(None),
+        Value::Object(obj) => {
+            if let Some(range_val) = obj.get("range") {
+                // { range, placeholder } format
+                let range = range_val;
+                let start = range.get("start").ok_or_else(|| EditorError::Io("Invalid range".to_string()))?;
+                let end = range.get("end").ok_or_else(|| EditorError::Io("Invalid range".to_string()))?;
+                let placeholder = obj
+                    .get("placeholder")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+
+                Ok(Some(LspPrepareRenameResult {
+                    range: LspRange {
+                        start_line: start.get("line").and_then(Value::as_u64).ok_or_else(|| EditorError::Io("Invalid line".to_string()))? as u32,
+                        start_character: start.get("character").and_then(Value::as_u64).ok_or_else(|| EditorError::Io("Invalid character".to_string()))? as u32,
+                        end_line: end.get("line").and_then(Value::as_u64).ok_or_else(|| EditorError::Io("Invalid line".to_string()))? as u32,
+                        end_character: end.get("character").and_then(Value::as_u64).ok_or_else(|| EditorError::Io("Invalid character".to_string()))? as u32,
+                    },
+                    placeholder,
+                }))
+            } else if obj.get("start").is_some() {
+                // Range format (just { start, end })
+                let start = obj.get("start").ok_or_else(|| EditorError::Io("Invalid range".to_string()))?;
+                let end = obj.get("end").ok_or_else(|| EditorError::Io("Invalid range".to_string()))?;
+
+                Ok(Some(LspPrepareRenameResult {
+                    range: LspRange {
+                        start_line: start.get("line").and_then(Value::as_u64).ok_or_else(|| EditorError::Io("Invalid line".to_string()))? as u32,
+                        start_character: start.get("character").and_then(Value::as_u64).ok_or_else(|| EditorError::Io("Invalid character".to_string()))? as u32,
+                        end_line: end.get("line").and_then(Value::as_u64).ok_or_else(|| EditorError::Io("Invalid line".to_string()))? as u32,
+                        end_character: end.get("character").and_then(Value::as_u64).ok_or_else(|| EditorError::Io("Invalid character".to_string()))? as u32,
+                    },
+                    placeholder: String::new(),
+                }))
+            } else {
+                Ok(None)
+            }
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Rename symbol at the given position.
+#[tauri::command]
+pub async fn lsp_rename(
+    buffer_id: String,
+    line: u32,
+    character: u32,
+    new_name: String,
+) -> Result<Option<LspWorkspaceEdit>> {
+    let uri = path_to_uri(&buffer_id);
+    let workspace_root = workspace_root_from_path(&buffer_id);
+    let key = session_key(&workspace_root, &buffer_id)
+        .ok_or_else(|| EditorError::Io("No LSP server for this file type".to_string()))?;
+
+    let session = {
+        let sessions = SESSIONS.read().await;
+        sessions.get(&key).cloned()
+    };
+
+    let s = session
+        .ok_or_else(|| EditorError::Io("LSP not running for this workspace".to_string()))?;
+
+    let params = lsp_types::RenameParams {
+        text_document_position: TextDocumentPositionParams {
+            text_document: lsp_types::TextDocumentIdentifier {
+                uri: Url::parse(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
+            },
+            position: Position { line, character },
+        },
+        new_name,
+        work_done_progress_params: Default::default(),
+    };
+
+    let params_value = serde_json::to_value(params).map_err(|e| EditorError::Io(e.to_string()))?;
+    let result = s
+        .send_request("textDocument/rename", params_value)
+        .await
+        .map_err(|e| EditorError::Io(e.to_string()))?;
+
+    // Parse WorkspaceEdit response
+    match result {
+        Value::Null => Ok(None),
+        Value::Object(obj) => {
+            let changes_val = obj.get("changes");
+            if let Some(Value::Object(changes_map)) = changes_val {
+                let mut changes = HashMap::new();
+
+                for (uri_str, edits_val) in changes_map {
+                    if let Value::Array(edits_arr) = edits_val {
+                        let text_edits: Vec<LspTextEdit> = edits_arr
+                            .iter()
+                            .filter_map(|edit_val| {
+                                let range = edit_val.get("range")?;
+                                let start = range.get("start")?;
+                                let end = range.get("end")?;
+                                let new_text = edit_val.get("newText")?.as_str()?.to_string();
+
+                                Some(LspTextEdit {
+                                    range: LspRange {
+                                        start_line: start.get("line")?.as_u64()? as u32,
+                                        start_character: start.get("character")?.as_u64()? as u32,
+                                        end_line: end.get("line")?.as_u64()? as u32,
+                                        end_character: end.get("character")?.as_u64()? as u32,
+                                    },
+                                    new_text,
+                                })
+                            })
+                            .collect();
+
+                        if !text_edits.is_empty() {
+                            changes.insert(uri_to_path(uri_str), text_edits);
+                        }
+                    }
+                }
+
+                if changes.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(LspWorkspaceEdit { changes }))
+                }
+            } else {
+                Ok(None)
+            }
+        }
+        _ => Ok(None),
+    }
+}
+
