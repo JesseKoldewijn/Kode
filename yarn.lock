@@ -507,20 +507,20 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ripple-ts/prettier-plugin@npm:latest":
-  version: 0.2.200
-  resolution: "@ripple-ts/prettier-plugin@npm:0.2.200"
+"@ripple-ts/prettier-plugin@npm:^0.2.208":
+  version: 0.2.208
+  resolution: "@ripple-ts/prettier-plugin@npm:0.2.208"
   peerDependencies:
     prettier: ">=2.0.0"
     ripple: "*"
-  checksum: 10c0/a6af15f907df12d6717ef1a22f205d0b362a2cd9a96b2e6c478843159a976acee03df76fc4f187ef1cf5792c2b08886d63fbb941e9163c5fe2c84a93afdd50f2
+  checksum: 10c0/4a52652853b6d297d70c02649d181d5971400160d2fab8a84f00b227d75a6f2ed3721a3868a0790c738527e7102ffa98467d1ec699af4e3a1a2120b6ac5f6004
   languageName: node
   linkType: hard
 
-"@ripple-ts/vite-plugin@npm:latest":
-  version: 0.2.200
-  resolution: "@ripple-ts/vite-plugin@npm:0.2.200"
-  checksum: 10c0/642bca4d6a469e0790622872357c20b1a1461d04884c9ba4f9ad663854aab957c2aee90b3fc262dfd0428c41496faef448e78f8f3839a3a4b3e284790bbbdc35
+"@ripple-ts/vite-plugin@npm:^0.2.208":
+  version: 0.2.208
+  resolution: "@ripple-ts/vite-plugin@npm:0.2.208"
+  checksum: 10c0/ee5bdf2d40139e0ebf088e79575d2cc1b1d64ae0f5ff1b4585faae2d56edee4ae50d265d4f3cefeee8b13b5b613bf82d0008ea77310b5a2d2cfdda0ceead32d6
   languageName: node
   linkType: hard
 
@@ -2011,8 +2011,8 @@ __metadata:
   dependencies:
     "@axe-core/playwright": "npm:^4.11.1"
     "@playwright/test": "npm:^1.58.2"
-    "@ripple-ts/prettier-plugin": "npm:latest"
-    "@ripple-ts/vite-plugin": "npm:latest"
+    "@ripple-ts/prettier-plugin": "npm:^0.2.208"
+    "@ripple-ts/vite-plugin": "npm:^0.2.208"
     "@tailwindcss/vite": "npm:^4.1.18"
     "@tauri-apps/api": "npm:^2.10.1"
     "@tauri-apps/cli": "npm:^2.10.0"
@@ -2037,7 +2037,7 @@ __metadata:
     ripple: "npm:latest"
     tailwindcss: "npm:^4.1.18"
     typescript: "npm:^5.9.3"
-    vite: "npm:rolldown-vite@latest"
+    vite: "npm:rolldown-vite@^7.3.1"
     vitest: "npm:^4.0.18"
     vitest-axe: "npm:^0.1.0"
   languageName: unknown
@@ -3180,7 +3180,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"vite@npm:rolldown-vite@latest":
+"vite@npm:rolldown-vite@^7.3.1":
   version: 7.3.1
   resolution: "rolldown-vite@npm:7.3.1"
   dependencies:

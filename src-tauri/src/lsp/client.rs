@@ -8,12 +8,13 @@ use lsp_types::{
     DidChangeTextDocumentParams, DidOpenTextDocumentParams, GotoDefinitionParams,
     HoverClientCapabilities, HoverParams, InitializeParams, MarkupKind, Position,
     SignatureHelpClientCapabilities, SignatureHelpParams, TextDocumentClientCapabilities,
-    TextDocumentContentChangeEvent, TextDocumentItem, TextDocumentPositionParams, Url,
+    TextDocumentContentChangeEvent, TextDocumentItem, TextDocumentPositionParams, Uri,
     VersionedTextDocumentIdentifier, WorkspaceClientCapabilities,
 };
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
@@ -410,7 +411,7 @@ async fn ensure_session(workspace_root: &str, first_uri: &str) -> std::result::R
     sessions.insert(key.clone(), session.clone());
     drop(sessions);
 
-    let root_uri = Url::parse(&path_to_uri(workspace_root)).map_err(|e| e.to_string())?;
+    let root_uri = Uri::from_str(&path_to_uri(workspace_root)).map_err(|e| e.to_string())?;
     
     // Declare comprehensive client capabilities
     let capabilities = ClientCapabilities {
@@ -531,6 +532,7 @@ async fn ensure_session(workspace_root: &str, first_uri: &str) -> std::result::R
         window: None,
         general: None,
         experimental: None,
+        notebook_document: None,
     };
 
     let init_params = InitializeParams {
@@ -587,7 +589,7 @@ pub async fn notify_did_open(buffer_id: String) -> std::result::Result<(), Strin
     };
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
-            uri: Url::parse(&uri).map_err(|e| e.to_string())?,
+            uri: Uri::from_str(&uri).map_err(|e| e.to_string())?,
             language_id: language_id_for_path(&buffer_id),
             version: 0,
             text: content,
@@ -639,7 +641,7 @@ pub async fn notify_did_change(buffer_id: String, version: u64, content: String)
     };
     let params = DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
-            uri: Url::parse(&uri).map_err(|e| e.to_string())?,
+            uri: Uri::from_str(&uri).map_err(|e| e.to_string())?,
             version: version as i32,
         },
         content_changes: vec![TextDocumentContentChangeEvent {
@@ -774,7 +776,7 @@ pub async fn lsp_goto_definition(
     let params = GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: lsp_types::TextDocumentIdentifier {
-                uri: Url::parse(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
+                uri: Uri::from_str(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
             },
             position: Position {
                 line: line,
@@ -872,7 +874,7 @@ pub async fn lsp_hover(buffer_id: String, line: u32, character: u32) -> Result<O
     let params = HoverParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: lsp_types::TextDocumentIdentifier {
-                uri: Url::parse(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
+                uri: Uri::from_str(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
             },
             position: Position { line, character },
         },
@@ -932,7 +934,7 @@ pub async fn lsp_completion(
     let params = CompletionParams {
         text_document_position: TextDocumentPositionParams {
             text_document: lsp_types::TextDocumentIdentifier {
-                uri: Url::parse(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
+                uri: Uri::from_str(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
             },
             position: Position { line, character },
         },
@@ -1013,7 +1015,7 @@ pub async fn lsp_signature_help(
     let params = SignatureHelpParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: lsp_types::TextDocumentIdentifier {
-                uri: Url::parse(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
+                uri: Uri::from_str(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
             },
             position: Position { line, character },
         },
@@ -1199,7 +1201,7 @@ pub async fn lsp_references(
     let params = lsp_types::ReferenceParams {
         text_document_position: TextDocumentPositionParams {
             text_document: lsp_types::TextDocumentIdentifier {
-                uri: Url::parse(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
+                uri: Uri::from_str(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
             },
             position: Position { line, character },
         },
@@ -1265,7 +1267,7 @@ pub async fn lsp_prepare_rename(
 
     let params = TextDocumentPositionParams {
         text_document: lsp_types::TextDocumentIdentifier {
-            uri: Url::parse(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
+            uri: Uri::from_str(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
         },
         position: Position { line, character },
     };
@@ -1346,7 +1348,7 @@ pub async fn lsp_rename(
     let params = lsp_types::RenameParams {
         text_document_position: TextDocumentPositionParams {
             text_document: lsp_types::TextDocumentIdentifier {
-                uri: Url::parse(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
+                uri: Uri::from_str(&uri).map_err(|e| EditorError::Io(e.to_string()))?,
             },
             position: Position { line, character },
         },

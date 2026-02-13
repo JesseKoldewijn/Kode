@@ -19,8 +19,8 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.11.1",
     "@playwright/test": "^1.58.2",
-    "@ripple-ts/prettier-plugin": "latest",
-    "@ripple-ts/vite-plugin": "latest",
+    "@ripple-ts/prettier-plugin": "^0.2.208",
+    "@ripple-ts/vite-plugin": "^0.2.208",
     "@tailwindcss/vite": "^4.1.18",
     "@tauri-apps/cli": "^2.10.0",
     "@types/node": "^25.2.1",
@@ -32,7 +32,7 @@
     "playwright": "^1.58.2",
     "prettier": "^3.8.1",
     "typescript": "^5.9.3",
-    "vite": "npm:rolldown-vite@latest",
+    "vite": "npm:rolldown-vite@^7.3.1",
     "vitest": "^4.0.18",
     "vitest-axe": "^0.1.0"
   },

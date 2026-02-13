@@ -80,7 +80,7 @@ impl Buffer {
             let parse_start = std::time::Instant::now();
             let mut parser = Parser::new();
             if parser.set_language(&lang).is_ok() {
-                self.tree = parser.parse_with(
+                self.tree = parser.parse_with_options(
                     &mut |byte, _| -> &[u8] {
                         if byte >= self.rope.len_bytes() {
                             return &[];
@@ -88,6 +88,7 @@ impl Buffer {
                         let (chunk, chunk_byte, _, _) = self.rope.chunk_at_byte(byte);
                         &chunk.as_bytes()[byte - chunk_byte..]
                     },
+                    None,
                     None,
                 );
                 let parse_duration = parse_start.elapsed();

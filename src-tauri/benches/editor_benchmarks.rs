@@ -3,7 +3,6 @@ use kode_lib::editor::buffer::Buffer;
 use kode_lib::editor::highlight::get_viewport_highlights;
 use kode_lib::editor::parsing::update_tree;
 use kode_lib::editor::search::{search_in_buffer, SearchOptions};
-use ropey::Rope;
 use tree_sitter::InputEdit;
 
 fn make_js_buffer(lines: usize) -> Buffer {
@@ -17,13 +16,17 @@ fn bench_parsing(c: &mut Criterion) {
     let mut group = c.benchmark_group("parsing");
 
     for &lines in &[100usize, 1_000, 10_000] {
-        group.bench_with_input(BenchmarkId::new("initial_parse_js", lines), &lines, |b, &l| {
-            b.iter(|| {
-                let mut buffer = make_js_buffer(l);
-                // Force initial parse
-                buffer.parse_if_needed();
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("initial_parse_js", lines),
+            &lines,
+            |b, &l| {
+                b.iter(|| {
+                    let mut buffer = make_js_buffer(l);
+                    // Force initial parse
+                    buffer.parse_if_needed();
+                });
+            },
+        );
     }
 
     group.finish();
@@ -100,6 +103,11 @@ fn bench_search(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_parsing, bench_highlighting, bench_edit_pipeline, bench_search);
+criterion_group!(
+    benches,
+    bench_parsing,
+    bench_highlighting,
+    bench_edit_pipeline,
+    bench_search
+);
 criterion_main!(benches);
-

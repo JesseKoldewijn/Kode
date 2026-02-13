@@ -35,7 +35,7 @@ pub fn update_tree(buffer: &mut Buffer, edit: Option<InputEdit>) {
     }
 
     let parse_start = std::time::Instant::now();
-    buffer.tree = parser.parse_with(
+    buffer.tree = parser.parse_with_options(
         &mut |byte, _| -> &[u8] {
             if byte >= buffer.rope.len_bytes() {
                 return &[];
@@ -44,6 +44,7 @@ pub fn update_tree(buffer: &mut Buffer, edit: Option<InputEdit>) {
             &chunk.as_bytes()[byte - chunk_byte..]
         },
         buffer.tree.as_ref(),
+        None,
     );
     let parse_duration = parse_start.elapsed();
     log::info!(
