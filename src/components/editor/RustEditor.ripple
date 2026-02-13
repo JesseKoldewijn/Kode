@@ -432,6 +432,44 @@ export component RustEditor(props: {
       currentSel.headLine < lines.length ? lines[currentSel.headLine].length : 0;
     const currentLine = lines[currentSel.headLine] || '';
 
+    // Go to Definition (F12)
+    if (e.key === 'F12' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      try {
+        const location = await editorEngine.getLspGotoDefinition(
+          @file.id,
+          currentSel.headLine,
+          currentSel.headCol
+        );
+        if (location) {
+          // Navigate to the definition location
+          if (location.path === @file.id) {
+            // Same file - just move cursor
+            @selections = [
+              {
+                anchorLine: location.startLine,
+                anchorCol: location.startCharacter,
+                headLine: location.startLine,
+                headCol: location.startCharacter,
+              },
+            ];
+            // Scroll to the definition line
+            const lineElement = document.querySelector(`[data-line="${location.startLine}"]`);
+            if (lineElement) {
+              lineElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          } else {
+            // Different file - would need to open it
+            // For now, log it (proper implementation would emit an event to open the file)
+            console.log('Go to definition in different file:', location);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to get definition:', err);
+      }
+      return;
+    }
+
     // Handle Tab
     if (e.key === 'Tab' && !@showCompletion) {
       e.preventDefault();

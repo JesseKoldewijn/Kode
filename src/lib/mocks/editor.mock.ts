@@ -1242,8 +1242,67 @@ function handleLspCompletion(
   return null;
 }
 
-function handleLspGotoDefinition(_args: Record<string, unknown>): null {
-  // No real goto definition in mock mode
+function handleLspGotoDefinition(args: Record<string, unknown>): LspLocation | null {
+  const bufferId = args.bufferId as string;
+  const line = args.line as number;
+  const character = args.character as number;
+
+  const buffer = buffers.get(bufferId);
+  if (!buffer) return null;
+
+  // Only support TypeScript/JavaScript
+  if (!['typescript', 'javascript', 'tsx', 'jsx'].includes(buffer.language)) {
+    return null;
+  }
+
+  const lines = buffer.content.split('\n');
+  if (line >= lines.length) return null;
+
+  const lineText = lines[line];
+  
+  // Extract word at cursor position - need to look both before and after cursor
+  const beforeCursor = lineText.substring(0, character);
+  const afterCursor = lineText.substring(character);
+  
+  const beforeMatch = beforeCursor.match(/(\w*)$/);
+  const afterMatch = afterCursor.match(/^(\w*)/);
+  
+  if (!beforeMatch && !afterMatch) return null;
+  
+  const word = (beforeMatch?.[1] || '') + (afterMatch?.[1] || '');
+  if (!word) return null;
+
+  // Search for definition in the buffer
+  // Look for: function foo(), const foo =, let foo =, var foo =, class foo
+  const definitionPatterns = [
+    new RegExp(`^\\s*function\\s+${word}\\s*\\(`),
+    new RegExp(`^\\s*const\\s+${word}\\s*=`),
+    new RegExp(`^\\s*let\\s+${word}\\s*=`),
+    new RegExp(`^\\s*var\\s+${word}\\s*=`),
+    new RegExp(`^\\s*class\\s+${word}\\s*[{\\s]`),
+    new RegExp(`^\\s*export\\s+function\\s+${word}\\s*\\(`),
+    new RegExp(`^\\s*export\\s+const\\s+${word}\\s*=`),
+    new RegExp(`^\\s*export\\s+class\\s+${word}\\s*[{\\s]`),
+  ];
+
+  for (let i = 0; i < lines.length; i++) {
+    for (const pattern of definitionPatterns) {
+      if (pattern.test(lines[i])) {
+        // Found definition - return location
+        const match = lines[i].match(new RegExp(`\\b${word}\\b`));
+        if (match && match.index !== undefined) {
+          return {
+            path: bufferId,
+            startLine: i,
+            startCharacter: match.index,
+            endLine: i,
+            endCharacter: match.index + word.length,
+          };
+        }
+      }
+    }
+  }
+
   return null;
 }
 
